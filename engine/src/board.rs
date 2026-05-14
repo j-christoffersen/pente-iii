@@ -45,7 +45,6 @@ mod tests {
         let mut b = BoardState::new(3, 2);
         b.set_tile(0, 1, TileType::Black);
         b.set_tile(1, 0, TileType::White);
-        b.score = 42;
 
         let json = serde_json::to_string(&b).expect("serialize");
         let back: BoardState = serde_json::from_str(&json).expect("deserialize");
