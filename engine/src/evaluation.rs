@@ -31,7 +31,7 @@ impl EvaluatedMoveSet {
         board: BoardState,
         scorer: PatternScorer
     ) -> Self {
-        let mut map = MoveMap::with_capacity(0);
+        let map = MoveMap::with_capacity(0);
 
         let mut this = Self {
             board,
@@ -70,13 +70,12 @@ impl EvaluatedMoveSet {
             scorer: parent.scorer
         };
 
-        let before = |r: usize, c: usize| this.tile_at(r, c);
-        let after = |r: usize, c: usize| if r == row && c == col { TileType::Empty } else { this.tile_at(r, c) };
+        let before = |r: usize, c: usize| if r == row && c == col { TileType::Empty } else { this.tile_at(r, c) };
+        let after = |r: usize, c: usize| this.tile_at(r, c);
 
         let delta = this.local_score(row, col, after) - this.local_score(row, col, before);
 
         this.score = parent.score + delta;
-
         this
     }
 
@@ -183,10 +182,10 @@ impl EvaluatedMoveSet {
 
         // Diagonal / -> Rn = -Cn + col + row
         let r0 = row.saturating_sub(5)
-          .max(row + col - col.saturating_sub(5));
+          .max(row + col - (self.board.width - 1));
         let r1 = (row + 5)
           .min(self.board.height - 1)
-          .min(row + col - (self.board.width - 1));
+          .min(row + col - col.saturating_sub(5));
         let diagonal_line: Vec<TileType> = (r0..=r1).map(|r| get(r, row + col - r)).collect();
         total += self.scorer.score_line(&diagonal_line);
 
@@ -202,6 +201,10 @@ pub struct PatternScorer {
     weights: PatternWeights
 }
 impl PatternScorer {
+    pub fn new(dfa: TileDfa, weights: PatternWeights) -> Self {
+        Self { dfa, weights }
+    }
+
     fn score_line(&self, line: &[TileType]) -> i32 {
         let mut sum = 0i32;
         for m in self.dfa.find_matches(line) {
@@ -268,54 +271,54 @@ pub fn default_automaton() -> (TileDfa, PatternWeights) {
     (ac, weights)
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use crate::tile::TileType::{Black, Empty, White};
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tile::TileType::{Black, Empty, White};
 
-//     #[test]
-//     fn incremental_matches_full_one_stone() {
-//         let (ac, w) = default_automaton();
-//         let mut board = BoardState::new(15, 15);
-//         board.set_tile(7, 7, Black);
-//         refresh_board_score(&mut board, &ac, &w);
+    #[test]
+    fn incremental_matches_full_one_stone() {
+        let emptyBoard = BoardState::new(15, 15);
+        let mut board = emptyBoard.clone();
+        board.set_tile(7, 7, Black);
+        let (dfa, weights) = default_automaton();
+        let scorer = PatternScorer::new(dfa, weights);
 
-//         let idx = board.index(7, 8);
-//         let full = EvaluatedMoveSet::from_board_state(board.clone(), vec![(idx, White)], &ac, &w);
+        let full = EvaluatedMoveSet::from_board_state(board, scorer.clone());
 
-//         let parent = EvaluatedMoveSet::from_board_state(board, vec![], &ac, &w);
-//         let inc = EvaluatedMoveSet::from_parent(&parent, 7, 8, White, &ac, &w);
+        let parent = EvaluatedMoveSet::from_board_state(emptyBoard, scorer.clone());
+        let inc = EvaluatedMoveSet::from_parent(parent, 7, 7, Black);
 
-//         assert_eq!(full.score, inc.score);
-//     }
+        assert!(full.score != 0);
+        assert_eq!(full.score, inc.score);
+    }
 
-//     #[test]
-//     fn seeded_from_board_matches_full_two_moves() {
-//         let (ac, w) = default_automaton();
-//         let mut board = BoardState::new(9, 9);
-//         board.set_tile(4, 4, Black);
-//         refresh_board_score(&mut board, &ac, &w);
+    // #[test]
+    // fn seeded_from_board_matches_full_two_moves() {
+    //     let (ac, w) = default_automaton();
+    //     let mut board = BoardState::new(9, 9);
+    //     board.set_tile(4, 4, Black);
 
-//         let moves = vec![
-//             (board.index(4, 5), White),
-//             (board.index(4, 6), Black),
-//         ];
-//         let mut map = MoveMap::new();
-//         for &(idx, t) in &moves {
-//             map.insert(idx, t);
-//         }
-//         let expected = evaluate_full(&board, &map, &ac, &w);
-//         let got = EvaluatedMoveSet::from_board_state(board, moves, &ac, &w).score;
-//         assert_eq!(got, expected);
-//     }
+    //     let moves = vec![
+    //         (board.index(4, 5), White),
+    //         (board.index(4, 6), Black),
+    //     ];
+    //     let mut map = MoveMap::new();
+    //     for &(idx, t) in &moves {
+    //         map.insert(idx, t);
+    //     }
+    //     let expected = evaluate_full(&board, &map, &ac, &w);
+    //     let got = EvaluatedMoveSet::from_board_state(board, moves, &ac, &w).score;
+    //     assert_eq!(got, expected);
+    // }
 
-//     #[test]
-//     fn move_map_lookup_o1() {
-//         let (ac, w) = default_automaton();
-//         let board = BoardState::new(5, 5);
-//         let idx = board.index(2, 3);
-//         let ems = EvaluatedMoveSet::from_board_state(board, vec![(idx, Black)], &ac, &w);
-//         assert_eq!(ems.move_at(2, 3), Some(Black));
-//         assert_eq!(ems.move_at(0, 0), None);
-//     }
-// }
+    // #[test]
+    // fn move_map_lookup_o1() {
+    //     let (ac, w) = default_automaton();
+    //     let board = BoardState::new(5, 5);
+    //     let idx = board.index(2, 3);
+    //     let ems = EvaluatedMoveSet::from_board_state(board, vec![(idx, Black)], &ac, &w);
+    //     assert_eq!(ems.move_at(2, 3), Some(Black));
+    //     assert_eq!(ems.move_at(0, 0), None);
+    // }
+}
