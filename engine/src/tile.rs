@@ -9,14 +9,26 @@ pub enum TileType {
 }
 
 impl TileType {
-    pub const ALPHABET_LEN: usize = 3;
+    pub fn from_player_type(player_type: PlayerType) -> Self {
+        match player_type {
+            PlayerType::Black => TileType::Black,
+            PlayerType::White => TileType::White,
+        }
+    }
+}
 
-    #[inline]
-    pub fn alphabet_index(self) -> usize {
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PlayerType {
+    Black,
+    White,
+}
+
+impl PlayerType {
+    pub fn next(self) -> Self {
         match self {
-            TileType::Black => 0,
-            TileType::White => 1,
-            TileType::Empty => 2,
+            PlayerType::Black => PlayerType::White,
+            PlayerType::White => PlayerType::Black,
         }
     }
 }

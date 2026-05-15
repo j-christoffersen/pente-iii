@@ -1,9 +1,9 @@
-//! Aho–Corasick automaton over [`TileType`](crate::tile::TileType).
+//! Aho–Corasick automaton over [`TurnTileType`]
 //! Find pattern matches in a sequence of tiles in O(n) time.
 
 use std::collections::VecDeque;
-
-use crate::tile::TileType;
+use serde::{Deserialize, Serialize};
+use crate::tile::{PlayerType, TileType};
 
 /// One occurrence of a pattern in the scanned sequence.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -16,10 +16,44 @@ pub struct Match {
     pub pattern_id: usize,
 }
 
+// One is the currently to move player's piece, Two is their opponent's piece, Empty is an empty tile.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TurnTileType {
+    One,
+    Two,
+    Empty,
+}
+
+impl TurnTileType {
+    pub const ALPHABET_LEN: usize = 3;
+
+    #[inline]
+    pub fn alphabet_index(self) -> usize {
+        match self {
+            TurnTileType::One => 1,
+            TurnTileType::Two => 2,
+            TurnTileType::Empty => 0,
+        }
+    }
+
+    #[inline]
+    pub fn from_tile_type(player_to_play: PlayerType, tile_type: TileType) -> Self {
+        match (player_to_play, tile_type) {
+            (PlayerType::White, TileType::White) => TurnTileType::One,
+            (PlayerType::White, TileType::Black) => TurnTileType::Two,
+            (PlayerType::White, TileType::Empty) => TurnTileType::Empty,
+            (PlayerType::Black, TileType::White) => TurnTileType::Two,
+            (PlayerType::Black, TileType::Black) => TurnTileType::One,
+            (PlayerType::Black, TileType::Empty) => TurnTileType::Empty,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 struct Node {
     /// Trie edges by `TileType::alphabet_index()`.
-    next: [Option<usize>; TileType::ALPHABET_LEN],
+    next: [Option<usize>; TurnTileType::ALPHABET_LEN],
     fail: usize,
     /// Pattern ids whose bytes end exactly at this trie node.
     output: Vec<usize>,
@@ -28,7 +62,7 @@ struct Node {
 impl Node {
     fn new() -> Self {
         Self {
-            next: [None; TileType::ALPHABET_LEN],
+            next: [None; TurnTileType::ALPHABET_LEN],
             fail: 0,
             output: Vec::new(),
         }
@@ -54,7 +88,7 @@ impl TileDfa {
 
     /// Insert a pattern; returns its id. Call [`build`](Self::build) after all patterns are added.
     /// Empty patterns are rejected.
-    pub fn add_pattern(&mut self, pattern: &[TileType]) -> usize {
+    pub fn add_pattern(&mut self, pattern: &[TurnTileType]) -> usize {
         assert!(!self.built, "cannot add_pattern after build");
         assert!(!pattern.is_empty(), "empty pattern is not supported");
 
@@ -82,7 +116,7 @@ impl TileDfa {
         let mut q = VecDeque::new();
         let root = 0;
 
-        for c in 0..TileType::ALPHABET_LEN {
+        for c in 0..TurnTileType::ALPHABET_LEN {
             if let Some(u) = self.nodes[root].next[c] {
                 self.nodes[u].fail = root;
                 q.push_back(u);
@@ -90,7 +124,7 @@ impl TileDfa {
         }
 
         while let Some(r) = q.pop_front() {
-            for c in 0..TileType::ALPHABET_LEN {
+            for c in 0..TurnTileType::ALPHABET_LEN {
                 let Some(u) = self.nodes[r].next[c] else {
                     continue;
                 };
@@ -112,7 +146,7 @@ impl TileDfa {
     }
 
     /// Advance from `state` on `tile` (after `build`).
-    pub fn transition(&self, mut state: usize, tile: TileType) -> usize {
+    pub fn transition(&self, mut state: usize, tile: TurnTileType) -> usize {
         debug_assert!(self.built);
         let c = tile.alphabet_index();
         loop {
@@ -127,7 +161,7 @@ impl TileDfa {
     }
 
     /// All pattern occurrences in `text` (possibly overlapping). End index is `i + 1` after consuming `text[i]`.
-    pub fn find_matches(&self, text: &[TileType]) -> Vec<Match> {
+    pub fn find_matches(&self, text: &[TurnTileType]) -> Vec<Match> {
         debug_assert!(self.built);
         let mut out = Vec::new();
         let mut state = 0usize;
@@ -156,7 +190,7 @@ impl TileDfa {
     }
 
     /// Returns true if some pattern occurs as a contiguous subsequence of `text`.
-    pub fn is_match(&self, text: &[TileType]) -> bool {
+    pub fn is_match(&self, text: &[TurnTileType]) -> bool {
         !self.find_matches(text).is_empty()
     }
 }
@@ -170,16 +204,15 @@ impl Default for TileDfa {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tile::TileType::{Black, Empty, White};
 
     #[test]
     fn single_pattern_finds_substring() {
         let mut ac = TileDfa::new();
-        let p = [Black, White, Black];
+        let p = [TurnTileType::One, TurnTileType::Two, TurnTileType::One];
         ac.add_pattern(&p);
         ac.build();
 
-        let text = [Empty, Black, White, Black, Empty];
+        let text = [TurnTileType::Empty, TurnTileType::One, TurnTileType::Two, TurnTileType::One, TurnTileType::Empty];
         let m = ac.find_matches(&text);
         assert_eq!(
             m,
@@ -194,11 +227,11 @@ mod tests {
     #[test]
     fn multiple_patterns_overlapping() {
         let mut ac = TileDfa::new();
-        let id_a = ac.add_pattern(&[Black, White]);
-        let id_b = ac.add_pattern(&[White, Black]);
+        let id_a = ac.add_pattern(&[TurnTileType::One, TurnTileType::Two]);
+        let id_b = ac.add_pattern(&[TurnTileType::Two, TurnTileType::One]);
         ac.build();
 
-        let text = [Black, White, Black];
+        let text = [TurnTileType::One, TurnTileType::Two, TurnTileType::One];
         let mut m = ac.find_matches(&text);
         m.sort_by_key(|x| (x.start, x.pattern_id));
         assert_eq!(
@@ -221,10 +254,10 @@ mod tests {
     #[test]
     fn failure_link_finds_suffix_pattern() {
         let mut ac = TileDfa::new();
-        ac.add_pattern(&[White, White]);
+        ac.add_pattern(&[TurnTileType::Two, TurnTileType::Two]);
         ac.build();
 
-        let text = [Black, White, White, White];
+        let text = [TurnTileType::One, TurnTileType::Two, TurnTileType::Two, TurnTileType::Two];
         let m = ac.find_matches(&text);
         assert_eq!(m.len(), 2);
         assert!(m.iter().any(|x| x.start == 1 && x.end == 3));

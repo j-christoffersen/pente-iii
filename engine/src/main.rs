@@ -44,5 +44,6 @@ fn main() -> Result<()> {
 /// Placeholder move list until the evaluator is wired up.
 fn get_top_moves(position: &str) -> Vec<MoveScore> {
     let _ = position;
+    let search = Search::new(PatternScorer::new(default_automaton()));
     vec![]
 }

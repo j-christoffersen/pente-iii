@@ -2,9 +2,10 @@
 
 use std::collections::HashMap;
 
-use crate::aho_corasick::TileDfa;
+use crate::aho_corasick::{TileDfa, TurnTileType};
 use crate::board::BoardState;
-use crate::tile::TileType;
+use crate::tile::{PlayerType, TileType};
+
 
 /// Overlay moves keyed by flat board index for O(1) lookup. Values are [`TileType::White`] or
 /// [`TileType::Black`] (a stone played on top of the board grid).
@@ -15,184 +16,241 @@ pub type PatternWeights = Vec<i32>;
 
 /// A board position plus overlay stones and the composed pattern score.
 #[derive(Clone, Debug)]
-pub struct EvaluatedMoveSet {
-    pub board: BoardState,
+pub struct EvaluatedMoveSet<'a> {
+    pub board: &'a BoardState,
     /// Stones played on top of `board`; key is [`BoardState::index`].
     pub moves: MoveMap,
-    /// Play order; last entry is the most recent move (for incremental evaluation).
-    pub move_order: Vec<(usize, TileType)>,
+    /// The coordinates of the move, if any
+    pub move_coords: Option<(usize, usize)>,
+    /// bounding box of all played moves thus far
+    pub min_row: usize,
+    pub max_row: usize,
+    pub min_col: usize,
+    pub max_col: usize,
+
+    pub score_white: i32,
+    pub score_black: i32,
+
+    pub player_to_play: PlayerType,
     pub score: i32,
-    pub scorer: PatternScorer
 }
 
-impl EvaluatedMoveSet {
+impl<'a> EvaluatedMoveSet<'a> {
     // initalize an EvaluatedMoveSet from a BoardState, evaluating the full board
     pub fn from_board_state(
-        board: BoardState,
-        scorer: PatternScorer
+        board: &'a BoardState,
+        scorer: &PatternScorer,
+        player_to_play: PlayerType,
     ) -> Self {
         let map = MoveMap::with_capacity(0);
+
+        let  (mut min_row, mut max_row, mut min_col, mut max_col): (usize, usize, usize, usize) = (
+            board.height / 2,
+            board.height / 2,
+            board.width / 2,
+            board.width / 2,
+        );
+        let mut is_empty = true;
+
+        for row in 0..board.height {
+            for col in 0..board.width {
+                if board.get_tile(row, col) != TileType::Empty {
+                    if is_empty {
+                        min_row = row;
+                        max_row = row;
+                        min_col = col;
+                        max_col = col;
+                        is_empty = false;
+                    } else {
+                        min_row = min_row.min(row);
+                        max_row = max_row.max(row);
+                        min_col = min_col.min(col);
+                    }
+                    min_row = min_row.min(row);
+                    max_row = max_row.max(row);
+                    min_col = min_col.min(col);
+                    max_col = max_col.max(col);
+                }
+            }
+        }
 
         let mut this = Self {
             board,
             moves: map,
-            move_order: vec![],
+            move_coords: None,
+            min_row,
+            max_row,
+            min_col,
+            max_col,
+            player_to_play,
+            score_white: 0,
+            score_black: 0,
             score: 0,
-            scorer,
         };
-        this.score = this.evaluate_full();
+        this.score_white = evaluate_full(&board, scorer, &this.moves, PlayerType::White);
+        this.score_black = evaluate_full(&board, scorer, &this.moves, PlayerType::Black);
+        this.score = if player_to_play == PlayerType::White {
+            this.score_white
+        } else {
+            this.score_black
+        };
         this
     }
 
     // Add a new move to a parent EvaluatedMoveSet. Evaluates boardd on the delta of the moves
     pub fn from_parent(
-        parent: EvaluatedMoveSet,
+        parent: &'a EvaluatedMoveSet,
+        scorer: &PatternScorer,
+        board: &'a BoardState,
         row: usize,
         col: usize,
-        tile: TileType,
     ) -> Self {
-        debug_assert!(
-            matches!(tile, TileType::Black | TileType::White),
-            "Move must not be empty"
-        );
 
-        let idx = parent.board.index(row, col);
+        let idx = board.index(row, col);
         let mut moves = parent.moves.clone();
+        let player_to_play = parent.player_to_play.next();
+        let tile = TileType::from_player_type(player_to_play);
         moves.insert(idx, tile);
-        let mut move_order = parent.move_order.clone();
-        move_order.push((idx, tile));
 
         let mut this = Self {
-            board: parent.board,
+            board,
             moves,
-            move_order,
+            move_coords: Some((row, col)),
+            min_row: parent.min_row.min(row),
+            max_row: parent.max_row.max(row),
+            min_col: parent.min_col.min(col),
+            max_col: parent.max_col.max(col),
+            player_to_play,
+            score_white: 0,
+            score_black: 0,
             score: 0,
-            scorer: parent.scorer
         };
 
-        let before = |r: usize, c: usize| if r == row && c == col { TileType::Empty } else { this.tile_at(r, c) };
-        let after = |r: usize, c: usize| this.tile_at(r, c);
+        let before = |r: usize, c: usize| if r == row && c == col { TileType::Empty } else { effective_tile_at(r, c, &board, &parent.moves) };
+        let after = |r: usize, c: usize| effective_tile_at(r, c, &board, &this.moves);
+        
+        let delta_white = local_score(row, col, after, board, scorer, PlayerType::White) - local_score(row, col, before, board, scorer, PlayerType::White);
+        this.score_white = parent.score_white + delta_white;
 
-        let delta = this.local_score(row, col, after) - this.local_score(row, col, before);
+        let delta_black = local_score(row, col, after, board, scorer, PlayerType::Black) - local_score(row, col, before, board, scorer, PlayerType::Black);
+        this.score_black = parent.score_black + delta_black;
 
-        this.score = parent.score + delta;
+        this.score = if player_to_play == PlayerType::White {
+            this.score_white
+        } else {
+            this.score_black
+        };
+        
         this
     }
 
-    fn tile_at(&self, row: usize, col: usize) -> TileType {
-        let i = self.board.index(row, col);
-        self.moves
-            .get(&i)
-            .copied()
-            .unwrap_or_else(|| self.board.get_tile(row, col))
-    }
-
-    fn evaluate_full(&self) -> i32 {
-        let mut total = 0i32;
-
-        for row in 0..self.board.height {
-            let line: Vec<TileType> = (0..self.board.width).map(|c| self.tile_at(row, c)).collect();
-            total += self.scorer.score_line(&line);
-        }
-
-        for col in 0..self.board.width {
-            let line: Vec<TileType> = (0..self.board.height).map(|r| self.tile_at(r, col)).collect();
-            total += self.scorer.score_line(&line);
-        }
-
-        // Down-right (\): starts along top row then left column.
-        for start_col in 0..self.board.width {
-            let mut line = Vec::new();
-            let mut r = 0usize;
-            let mut c = start_col;
-            while r < self.board.height && c < self.board.width {
-                line.push(self.tile_at(r, c));
-                r += 1;
-                c += 1;
-            }
-            total += self.scorer.score_line(&line);
-        }
-        for start_row in 1..self.board.height {
-            let mut line = Vec::new();
-            let mut r = start_row;
-            let mut c = 0usize;
-            while r < self.board.height && c < self.board.width {
-                line.push(self.tile_at(r, c));
-                r += 1;
-                c += 1;
-            }
-            total += self.scorer.score_line(&line);
-        }
-
-        // Down-left (/): starts along top row then right column.
-        for start_col in 0..self.board.width {
-            let mut line = Vec::new();
-            let mut r = 0usize;
-            let mut c = start_col as isize;
-            while r < self.board.height && c >= 0 {
-                line.push(self.tile_at(r, c as usize));
-                r += 1;
-                c -= 1;
-            }
-            total += self.scorer.score_line(&line);
-        }
-        for start_row in 1..self.board.height {
-            let mut line = Vec::new();
-            let mut r = start_row;
-            let mut c = (self.board.width - 1) as isize;
-            while r < self.board.height && c >= 0 {
-                line.push(self.tile_at(r, c as usize));
-                r += 1;
-                c -= 1;
-            }
-            total += self.scorer.score_line(&line);
-        }
-
-        total
-    }
-
-    fn local_score(
-        &self,
-        row: usize,
-        col: usize,
-        get: impl Fn(usize, usize) -> TileType,
-    ) -> i32 {
-        let mut total = 0i32;
-
-        // Horizontal
-        let c0 = col.saturating_sub(5);
-        let c1 = (col + 5).min(self.board.width - 1);
-        let row_line: Vec<TileType> = (c0..=c1).map(|c| get(row, c)).collect();
-        total += self.scorer.score_line(&row_line);
-
-        // Vertical
-        let r0 = row.saturating_sub(5);
-        let r1 = (row + 5).min(self.board.height - 1);
-        let col_line: Vec<TileType> = (r0..=r1).map(|r| get(r, col)).collect();
-        total += self.scorer.score_line(&col_line);
-
-        // Diagonal \ -> Rn = Cn - col + row
-        let r0 = row.saturating_sub(5)
-          .max(col.saturating_sub(5) + row - col);
-        let r1 = (row + 5)
-          .min(self.board.height - 1)
-          .min(self.board.width - 1 + row - col);
-        let diagonal_line: Vec<TileType> = (r0..=r1).map(|r| get(r, r + col - row)).collect();
-        total += self.scorer.score_line(&diagonal_line);
-
-        // Diagonal / -> Rn = -Cn + col + row
-        let r0 = row.saturating_sub(5)
-          .max(row + col - (self.board.width - 1));
-        let r1 = (row + 5)
-          .min(self.board.height - 1)
-          .min(row + col - col.saturating_sub(5));
-        let diagonal_line: Vec<TileType> = (r0..=r1).map(|r| get(r, row + col - r)).collect();
-        total += self.scorer.score_line(&diagonal_line);
-
-        total
-    }
+    
 }
 
+// gets the tile at a position given an initial board and set of moves made
+fn effective_tile_at(row: usize, col: usize, board: &BoardState, moves: &MoveMap) -> TileType {
+    let i = board.index(row, col);
+    moves
+        .get(&i)
+        .copied()
+        .unwrap_or_else(|| board.get_tile(row, col))
+}
+
+// evalautes the score of a board
+fn evaluate_full(board: &BoardState, scorer: &PatternScorer, moves: &MoveMap, player_to_play: PlayerType) -> i32 {
+    let mut total = 0i32;
+    let convert_to_turn_tile_type = |tile: TileType| TurnTileType::from_tile_type(player_to_play, tile);
+
+    for row in 0..board.height {
+        let line: Vec<TurnTileType> = (0..board.width).map(|c| effective_tile_at(row, c, board, moves))
+        .map(convert_to_turn_tile_type)
+        .collect();
+        total += scorer.score_line(&line);
+    }
+
+    for col in 0..board.width {
+        let line: Vec<TurnTileType> = (0..board.height).map(|r| effective_tile_at(r, col, board, moves))
+        .map(convert_to_turn_tile_type)
+        .collect();
+        total += scorer.score_line(&line);
+    }
+
+    // TODO hanlde non-square boards
+    // Down-right (\): starts along top row then left column.
+    for start_col in 0..board.width {
+        let line: Vec<TurnTileType> = (start_col..board.width).map(|c| effective_tile_at(c - start_col, c, board, moves))
+        .map(convert_to_turn_tile_type)
+        .collect();
+        total += scorer.score_line(&line);
+    }
+    for start_row in 1..board.height {
+        let line: Vec<TurnTileType> = (start_row..board.height).map(|r| effective_tile_at(r, r - start_row, board, moves))
+        .map(convert_to_turn_tile_type)
+        .collect();
+        total += scorer.score_line(&line);
+    }
+
+    // Down-left (/): starts along top row then right column.
+    for start_col in 0..board.width {
+        let line: Vec<TurnTileType> = (0..start_col).map(|c| effective_tile_at(start_col - c, c, board, moves))
+        .map(convert_to_turn_tile_type)
+        .collect();
+        total += scorer.score_line(&line);
+    }
+    for start_row in 1..board.height {
+        let line: Vec<TurnTileType> = (0..start_row).map(|r| effective_tile_at(r, start_row - r, board, moves))
+        .map(convert_to_turn_tile_type)
+        .collect();
+        total += scorer.score_line(&line);
+    }
+
+    total
+}
+
+// gets the score associated with a single tile. Used for calculating deltas between moves.
+fn local_score(
+    row: usize,
+    col: usize,
+    get: impl Fn(usize, usize) -> TileType,
+    board: &BoardState,
+    scorer: &PatternScorer,
+    player_to_play: PlayerType,
+) -> i32 {
+    let mut total = 0i32;
+    let convert_to_turn_tile_type = |tile: TileType| TurnTileType::from_tile_type(player_to_play, tile);
+    
+    // Horizontal
+    let c0 = col.saturating_sub(5);
+    let c1 = (col + 5).min(board.width - 1);
+    let row_line: Vec<TurnTileType> = (c0..=c1).map(|c| get(row, c)).map(convert_to_turn_tile_type).collect();
+    total += scorer.score_line(&row_line);
+
+    // Vertical
+    let r0 = row.saturating_sub(5);
+    let r1 = (row + 5).min(board.height - 1);
+    let col_line: Vec<TurnTileType> = (r0..=r1).map(|r| get(r, col)).map(convert_to_turn_tile_type).collect();
+    total += scorer.score_line(&col_line);
+
+    // Diagonal \ -> Rn = Cn - col + row
+    let r0 = row.saturating_sub(5)
+      .max(col.saturating_sub(5) + row - col);
+    let r1 = (row + 5)
+      .min(board.height - 1)
+      .min(board.width - 1 + row - col);
+    let diagonal_line: Vec<TurnTileType> = (r0..=r1).map(|r| get(r, r + col - row)).map(convert_to_turn_tile_type).collect();
+    total += scorer.score_line(&diagonal_line);
+
+    // Diagonal / -> Rn = -Cn + col + row
+    let r0 = row.saturating_sub(5)
+      .max(row + col - (board.width - 1));
+    let r1 = (row + 5)
+      .min(board.height - 1)
+      .min(row + col - col.saturating_sub(5));
+    let diagonal_line: Vec<TurnTileType> = (r0..=r1).map(|r| get(r, row + col - r)).map(convert_to_turn_tile_type).collect();
+    total += scorer.score_line(&diagonal_line);
+
+    total
+}
 
 // uses a DFA to calculate a score given a pattern of inputs
 #[derive(Debug, Clone)]
@@ -205,7 +263,7 @@ impl PatternScorer {
         Self { dfa, weights }
     }
 
-    fn score_line(&self, line: &[TileType]) -> i32 {
+    fn score_line(&self, line: &[TurnTileType]) -> i32 {
         let mut sum = 0i32;
         for m in self.dfa.find_matches(line) {
             sum = sum.saturating_add(self.weights[m.pattern_id]);
@@ -215,18 +273,19 @@ impl PatternScorer {
 }
 
 /// Pattern strings use `0` = empty, `1` = white, `2` = black (see `patterns.toml`).
-fn parse_pattern(s: &str) -> Vec<TileType> {
+fn parse_pattern(s: &str) -> Vec<TurnTileType> {
     s.chars()
         .map(|ch| match ch {
-            '0' => TileType::Empty,
-            '1' => TileType::White,
-            '2' => TileType::Black,
+            '0' => TurnTileType::Empty,
+            '1' => TurnTileType::One,
+            '2' => TurnTileType::Two,
             _ => panic!("bad pattern char {ch:?} in {s:?}"),
         })
         .collect()
 }
 
 /// Builds the automaton and weight table from the engine pattern set.
+/// 1 inidicates the currently to move player's piece, 2 indicates their opponent's piece.
 pub fn default_automaton() -> (TileDfa, PatternWeights) {
     let specs: &[(&str, i32)] = &[
         ("120", 5_i32.pow(0)),
@@ -284,10 +343,10 @@ mod tests {
         let (dfa, weights) = default_automaton();
         let scorer = PatternScorer::new(dfa, weights);
 
-        let full = EvaluatedMoveSet::from_board_state(board, scorer.clone());
+        let full = EvaluatedMoveSet::from_board_state(&board, &scorer, PlayerType::Black);
 
-        let parent = EvaluatedMoveSet::from_board_state(emptyBoard, scorer.clone());
-        let inc = EvaluatedMoveSet::from_parent(parent, 7, 7, Black);
+        let parent = EvaluatedMoveSet::from_board_state(&emptyBoard, &scorer, PlayerType::White);
+        let inc = EvaluatedMoveSet::from_parent(&parent, &scorer, &emptyBoard, 7, 7);
 
         assert!(full.score != 0);
         assert_eq!(full.score, inc.score);
