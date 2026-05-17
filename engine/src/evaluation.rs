@@ -337,47 +337,18 @@ mod tests {
 
     #[test]
     fn incremental_matches_full_one_stone() {
-        let emptyBoard = BoardState::new(15, 15);
-        let mut board = emptyBoard.clone();
+        let empty_booard = BoardState::new(15, 15);
+        let mut board = empty_booard.clone();
         board.set_tile(7, 7, Black);
         let (dfa, weights) = default_automaton();
         let scorer = PatternScorer::new(dfa, weights);
 
         let full = EvaluatedMoveSet::from_board_state(&board, &scorer, PlayerType::Black);
 
-        let parent = EvaluatedMoveSet::from_board_state(&emptyBoard, &scorer, PlayerType::White);
-        let inc = EvaluatedMoveSet::from_parent(&parent, &scorer, &emptyBoard, 7, 7);
+        let parent = EvaluatedMoveSet::from_board_state(&empty_booard, &scorer, PlayerType::White);
+        let inc = EvaluatedMoveSet::from_parent(&parent, &scorer, &empty_booard, 7, 7);
 
         assert!(full.score != 0);
         assert_eq!(full.score, inc.score);
     }
-
-    // #[test]
-    // fn seeded_from_board_matches_full_two_moves() {
-    //     let (ac, w) = default_automaton();
-    //     let mut board = BoardState::new(9, 9);
-    //     board.set_tile(4, 4, Black);
-
-    //     let moves = vec![
-    //         (board.index(4, 5), White),
-    //         (board.index(4, 6), Black),
-    //     ];
-    //     let mut map = MoveMap::new();
-    //     for &(idx, t) in &moves {
-    //         map.insert(idx, t);
-    //     }
-    //     let expected = evaluate_full(&board, &map, &ac, &w);
-    //     let got = EvaluatedMoveSet::from_board_state(board, moves, &ac, &w).score;
-    //     assert_eq!(got, expected);
-    // }
-
-    // #[test]
-    // fn move_map_lookup_o1() {
-    //     let (ac, w) = default_automaton();
-    //     let board = BoardState::new(5, 5);
-    //     let idx = board.index(2, 3);
-    //     let ems = EvaluatedMoveSet::from_board_state(board, vec![(idx, Black)], &ac, &w);
-    //     assert_eq!(ems.move_at(2, 3), Some(Black));
-    //     assert_eq!(ems.move_at(0, 0), None);
-    // }
 }

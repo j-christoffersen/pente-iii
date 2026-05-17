@@ -1,9 +1,7 @@
-use std::time::{Duration, Instant};
-
 // TODO handle turn change
 
 use crate::board::BoardState;
-use crate::evaluation::{EvaluatedMoveSet, MoveMap, PatternScorer};
+use crate::evaluation::{EvaluatedMoveSet, PatternScorer};
 use crate::tile::{TileType, PlayerType};
 
 /// After move ordering, only the top this many continuations are expanded each ply.
@@ -15,12 +13,6 @@ pub const SEARCH_DEPTH: usize = 2;
 pub const SEARCH_DEPTH: usize = 4;
 
 pub const BOUNDING_BOX_PADDING: usize = 6;
-
-pub struct Move {
-    row: usize,
-    col: usize,
-    score: i32,
-}
 
 /// Engine entrypoint: holds a reusable pattern scorer for search.
 #[derive(Clone, Debug)]
@@ -90,7 +82,7 @@ impl Search {
 mod tests {
     use super::*;
     use crate::evaluation::default_automaton;
-    use crate::tile::TileType::Black;
+    use crate::tile::TileType;
 
     fn test_search() -> Search {
         let (dfa, weights) = default_automaton();
@@ -118,7 +110,7 @@ mod tests {
     #[test]
     fn find_best_move_near_existing_stone() {
         let mut board = BoardState::new(15, 15);
-        board.set_tile(7, 7, Black);
+        board.set_tile(7, 7, TileType::Black);
         let search = test_search();
 
         let ((row, col), _score) =

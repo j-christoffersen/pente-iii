@@ -1,5 +1,7 @@
 //! CLI entry: reads a board position, emits ranked next moves as JSON.
 
+use std::time::Instant;
+
 use anyhow::{Context, Result};
 use clap::Parser;
 use serde::Serialize;
@@ -32,16 +34,21 @@ struct EngineOutput {
     /// Echo of the input position for callers that pipe JSON.
     position: String,
     moves: Vec<MoveScore>,
+    /// Wall-clock time for parse + search, in milliseconds.
+    duration_ms: u64,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
 
+    let started = Instant::now();
     let moves = get_top_moves(&args.position)?;
+    let duration_ms = started.elapsed().as_millis() as u64;
 
     let out = EngineOutput {
         position: args.position.clone(),
         moves,
+        duration_ms,
     };
 
     let json = serde_json::to_string_pretty(&out).context("serialize output")?;
