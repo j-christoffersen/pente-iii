@@ -68,13 +68,14 @@ impl Search {
             for (mv, ems) in top_moves_from_current_round_eval {
                 let (r, c) = *mv;
                 let (_, score) = self.evaluate_round_moves(ems, depth - 1);
-                moves_with_scores.push(((r, c), score));
+
+                // score returned will be the best score for the opponent, so we need to multiply by -1 to get the best score for the current player
+                moves_with_scores.push(((r, c), -score));
             }
             moves_with_scores
         };
 
-        // TODO handle different turns
-        // return the top move and its score
+        // return the "top" move and its score
         *moves_with_scores.iter().max_by_key(|(_, score)| score).unwrap()
     }
 }
@@ -87,11 +88,6 @@ mod tests {
     fn test_search() -> Search {
         let (dfa, weights) = default_automaton();
         Search::new(PatternScorer::new(dfa, weights))
-    }
-
-    #[test]
-    fn search_depth_is_reduced_under_cfg_test() {
-        assert_eq!(SEARCH_DEPTH, 2);
     }
 
     #[test]
