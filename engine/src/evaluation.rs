@@ -198,7 +198,7 @@ fn evaluate_full(board: &BoardState, scorer: &PatternScorer, moves: &MoveMap, pl
         total += scorer.score_line(&line);
     }
     for start_row in 1..board.height {
-        let line: Vec<TurnTileType> = (0..start_row).map(|r| effective_tile_at(r, start_row - r, board, moves))
+        let line: Vec<TurnTileType> = (start_row..board.height).map(|r| effective_tile_at(r, board.width - 1 + start_row - r, board, moves))
         .map(convert_to_turn_tile_type)
         .collect();
         total += scorer.score_line(&line);
