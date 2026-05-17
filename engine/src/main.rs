@@ -4,19 +4,27 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use serde::Serialize;
 
+use pente_engine::board::BoardState;
+use pente_engine::evaluation::{default_automaton, PatternScorer};
+use pente_engine::search::Search;
+use pente_engine::tile::PlayerType;
+
+/// Search depth for `find_best_move` (plies to explore).
+const SEARCH_DEPTH: usize = 3;
+
 #[derive(Parser, Debug)]
 #[command(name = "pente-engine")]
 #[command(about = "Evaluate a Pente board position and list candidate moves with scores.")]
 struct Args {
-    /// Board position encoding (format is project-defined; pass opaque state for the evaluator).
+    /// Board position: JSON `BoardState` or compact `WxH:` grid (`.` empty, `b` black, `w` white).
     position: String,
 }
 
 #[derive(Serialize)]
 struct MoveScore {
-    row: u8,
-    col: u8,
-    score: f64,
+    row: usize,
+    col: usize,
+    score: i32,
 }
 
 #[derive(Serialize)]
@@ -29,7 +37,7 @@ struct EngineOutput {
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    let moves = get_top_moves(&args.position);
+    let moves = get_top_moves(&args.position)?;
 
     let out = EngineOutput {
         position: args.position.clone(),
@@ -41,9 +49,11 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// Placeholder move list until the evaluator is wired up.
-fn get_top_moves(position: &str) -> Vec<MoveScore> {
-    let _ = position;
-    let search = Search::new(PatternScorer::new(default_automaton()));
-    vec![]
+fn get_top_moves(position: &str) -> Result<Vec<MoveScore>> {
+    let board = BoardState::from_position_str(position)
+        .map_err(|e| anyhow::anyhow!("parse board position: {e}"))?;
+    let (tile_dfa, pattern_weights) = default_automaton();
+    let search = Search::new(PatternScorer::new(tile_dfa, pattern_weights));
+    let ((row, col), score) = search.find_best_move(&board, PlayerType::Black, SEARCH_DEPTH);
+    Ok(vec![MoveScore { row, col, score }])
 }

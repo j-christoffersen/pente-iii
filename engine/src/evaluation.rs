@@ -233,19 +233,19 @@ fn local_score(
 
     // Diagonal \ -> Rn = Cn - col + row
     let r0 = row.saturating_sub(5)
-      .max(col.saturating_sub(5) + row - col);
+      .max(col.saturating_sub(5).saturating_add(row).saturating_sub(col));
     let r1 = (row + 5)
       .min(board.height - 1)
-      .min(board.width - 1 + row - col);
+      .min(board.width.saturating_sub(1).saturating_add(row).saturating_sub(col));
     let diagonal_line: Vec<TurnTileType> = (r0..=r1).map(|r| get(r, r + col - row)).map(convert_to_turn_tile_type).collect();
     total += scorer.score_line(&diagonal_line);
 
     // Diagonal / -> Rn = -Cn + col + row
     let r0 = row.saturating_sub(5)
-      .max(row + col - (board.width - 1));
+      .max(row.saturating_add(col).saturating_sub(board.width - 1));
     let r1 = (row + 5)
       .min(board.height - 1)
-      .min(row + col - col.saturating_sub(5));
+      .min(row.saturating_add(col).saturating_sub(col.saturating_sub(5)));
     let diagonal_line: Vec<TurnTileType> = (r0..=r1).map(|r| get(r, row + col - r)).map(convert_to_turn_tile_type).collect();
     total += scorer.score_line(&diagonal_line);
 
