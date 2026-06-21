@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import {
-  decodeGameParam,
-  type EncodedGame,
-  type OpponentMoveResponse,
-} from "@/lib/game";
+import { decodeGameParam, type OpponentMoveResponse } from "@/lib/game";
+import { getOpponentMove } from "@/lib/opponent";
+import { OPPONENT_PLAYER, type Player } from "@/lib/players";
 
-function parseGame(request: NextRequest, body?: unknown): EncodedGame | null {
+function parseGame(request: NextRequest, body?: unknown): string | null {
   const fromQuery = decodeGameParam(request.nextUrl.searchParams.get("game"));
   if (fromQuery) {
     return fromQuery;
@@ -20,14 +18,27 @@ function parseGame(request: NextRequest, body?: unknown): EncodedGame | null {
   return null;
 }
 
+function parsePlayer(body: unknown): Player {
+  if (
+    body &&
+    typeof body === "object" &&
+    "player" in body &&
+    ((body as { player: unknown }).player === "black" ||
+      (body as { player: unknown }).player === "white")
+  ) {
+    return (body as { player: Player }).player;
+  }
+  return OPPONENT_PLAYER;
+}
+
 /**
  * GET /api/opponent-move?game=<encoded>
- * POST /api/opponent-move  { "game": "<encoded>" }
- *
- * Stub: validates encoded game is present; Rust engine integration TBD.
+ * POST /api/opponent-move  { "game": "<encoded>", "player": "white" }
  */
-export async function GET(request: NextRequest) {
-  const game = parseGame(request);
+async function handleOpponentMove(request: NextRequest, body?: unknown) {
+  const started = performance.now();
+  const game = parseGame(request, body);
+
   if (!game) {
     return NextResponse.json(
       {
@@ -38,13 +49,22 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const response: OpponentMoveResponse = {
-    game,
-    moves: [],
-    duration_ms: 0,
-  };
+  const player = parsePlayer(body);
 
-  return NextResponse.json(response);
+  try {
+    const move = await getOpponentMove(game, player);
+    const response: OpponentMoveResponse = {
+      game,
+      moves: [move],
+      duration_ms: Math.round(performance.now() - started),
+    };
+    return NextResponse.json(response);
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Search failed" },
+      { status: 422 },
+    );
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -54,23 +74,5 @@ export async function POST(request: NextRequest) {
   } catch {
     body = undefined;
   }
-
-  const game = parseGame(request, body);
-  if (!game) {
-    return NextResponse.json(
-      {
-        error:
-          "Missing game. Pass encoded position as ?game=... or JSON body { game }.",
-      },
-      { status: 400 },
-    );
-  }
-
-  const response: OpponentMoveResponse = {
-    game,
-    moves: [],
-    duration_ms: 0,
-  };
-
-  return NextResponse.json(response);
+  return handleOpponentMove(request, body);
 }
