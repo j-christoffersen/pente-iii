@@ -301,11 +301,13 @@ fn local_score(
 }
 
 /// Score contributed by one player's captured pairs, in isolation. Each pair
-/// below the win threshold is worth less than the open-three weight ("01110" =
-/// 5^3 = 125 in `default_automaton`), so grabbing a capture never outranks
-/// blocking or making a real three/four. The 5th pair (the standard Pente
-/// win-by-capture threshold) is worth far more than any pattern weight, so the
-/// engine will always take a move that wins outright by capture.
+/// below the win threshold (5^4 = 625) sits between the weight of making your
+/// own open three ("01110" = 5^3 = 125) and the weight of an opponent's open
+/// three going unanswered ("02220" = 5^5 = 3125): a capture is a better move
+/// than just extending your own three, but it should never be taken in place
+/// of blocking a real threat from the opponent. The 5th pair (the standard
+/// Pente win-by-capture threshold) is worth far more than any pattern weight,
+/// so the engine will always take a move that wins outright by capture.
 const CAPTURE_PAIR_VALUE: i32 = 5_i32.pow(4);
 const CAPTURE_WIN_PAIRS: u32 = 5;
 const CAPTURE_WIN_SCORE: i32 = 5_i32.pow(9);
@@ -422,5 +424,56 @@ mod tests {
 
         assert!(full.score != 0);
         assert_eq!(full.score, inc.score);
+    }
+
+    #[test]
+    fn incremental_matches_full_after_capture() {
+        let (dfa, weights) = default_automaton();
+        let scorer = PatternScorer::new(dfa, weights);
+
+        // Black plays at (7, 9), bracketing White's pair at (7, 7)-(7, 8)
+        // against Black's existing stone at (7, 6).
+        let mut pre_board = BoardState::new(15, 15);
+        pre_board.set_tile(7, 6, Black);
+        pre_board.set_tile(7, 7, White);
+        pre_board.set_tile(7, 8, White);
+
+        let mut full_board = pre_board.clone();
+        let captured = full_board.apply_move(7, 9, PlayerType::Black);
+        assert_eq!(captured.len(), 2);
+        assert_eq!(full_board.captures_black, 1);
+
+        let full = EvaluatedMoveSet::from_board_state(&full_board, &scorer, PlayerType::Black);
+
+        let parent = EvaluatedMoveSet::from_board_state(&pre_board, &scorer, PlayerType::White);
+        let inc = EvaluatedMoveSet::from_parent(&parent, &scorer, &pre_board, 7, 9);
+
+        assert_eq!(inc.captures_black, 1);
+        assert_eq!(inc.captures_white, 0);
+        assert_eq!(full.score_white, inc.score_white);
+        assert_eq!(full.score_black, inc.score_black);
+    }
+
+    #[test]
+    fn capture_value_beats_self_open_three_but_loses_to_opponent_open_three() {
+        // "01110" (your own open three) is weighted at 5^3; "02220" (the
+        // opponent's open three) is weighted at -5^5. A single capture should
+        // beat the former (capturing is a stronger move than just extending
+        // your own three) but lose to the latter (never grab a capture in
+        // place of blocking the opponent's real threat).
+        let self_open_three_weight = 5_i32.pow(3);
+        let opponent_open_three_weight = 5_i32.pow(5);
+        assert!(capture_score(1) > self_open_three_weight);
+        assert!(capture_score(1) < opponent_open_three_weight);
+    }
+
+    #[test]
+    fn fifth_capture_dominates_every_pattern_weight() {
+        // The largest weight in `default_automaton` is 5^7 (an open four).
+        // Reaching 5 captured pairs is a standard Pente win, so it must score
+        // higher than any achievable pattern weight.
+        let largest_pattern_weight = 5_i32.pow(7);
+        assert!(capture_score(5) > largest_pattern_weight);
+        assert!(net_capture_score(5, 0) > largest_pattern_weight);
     }
 }
