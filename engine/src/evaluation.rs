@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use crate::aho_corasick::{TileDfa, TurnTileType};
-use crate::board::BoardState;
+use crate::board::{find_captures, BoardState};
 use crate::tile::{PlayerType, TileType};
 
 
@@ -27,6 +27,10 @@ pub struct EvaluatedMoveSet<'a> {
     pub max_row: usize,
     pub min_col: usize,
     pub max_col: usize,
+
+    /// Cumulative pairs captured so far, by capturing player.
+    pub captures_white: u32,
+    pub captures_black: u32,
 
     pub score_white: i32,
     pub score_black: i32,
@@ -83,12 +87,16 @@ impl<'a> EvaluatedMoveSet<'a> {
             min_col,
             max_col,
             player_to_play,
+            captures_white: board.captures_white,
+            captures_black: board.captures_black,
             score_white: 0,
             score_black: 0,
             score: 0,
         };
-        this.score_white = evaluate_full(&board, scorer, &this.moves, PlayerType::White);
-        this.score_black = evaluate_full(&board, scorer, &this.moves, PlayerType::Black);
+        this.score_white = evaluate_full(&board, scorer, &this.moves, PlayerType::White)
+            + net_capture_score(this.captures_white, this.captures_black);
+        this.score_black = evaluate_full(&board, scorer, &this.moves, PlayerType::Black)
+            + net_capture_score(this.captures_black, this.captures_white);
         this.score = if player_to_play == PlayerType::White {
             this.score_white
         } else {
@@ -106,11 +114,37 @@ impl<'a> EvaluatedMoveSet<'a> {
         col: usize,
     ) -> Self {
 
-        let idx = board.index(row, col);
         let mut moves = parent.moves.clone();
         let player_to_play = parent.player_to_play.next();
         let tile = TileType::from_player_type(player_to_play);
-        moves.insert(idx, tile);
+
+        let (mut delta_white, mut delta_black) =
+            apply_cell_change(&mut moves, board, scorer, row, col, tile);
+
+        // A move can capture bracketed opponent pairs along any of the 8
+        // directions; each captured cell is cleared and re-scored too, since
+        // its removal can open or close lines that don't pass through (row, col).
+        let captured = find_captures(board.width, board.height, row, col, player_to_play, |r, c| {
+            effective_tile_at(r, c, board, &moves)
+        });
+        for &(cr, cc) in &captured {
+            let (dw, db) = apply_cell_change(&mut moves, board, scorer, cr, cc, TileType::Empty);
+            delta_white += dw;
+            delta_black += db;
+        }
+
+        let captured_pairs = (captured.len() / 2) as u32;
+        let mut captures_white = parent.captures_white;
+        let mut captures_black = parent.captures_black;
+        match player_to_play {
+            PlayerType::White => captures_white += captured_pairs,
+            PlayerType::Black => captures_black += captured_pairs,
+        }
+
+        let capture_delta_white = net_capture_score(captures_white, captures_black)
+            - net_capture_score(parent.captures_white, parent.captures_black);
+        let capture_delta_black = net_capture_score(captures_black, captures_white)
+            - net_capture_score(parent.captures_black, parent.captures_white);
 
         let mut this = Self {
             board,
@@ -120,31 +154,45 @@ impl<'a> EvaluatedMoveSet<'a> {
             max_row: parent.max_row.max(row),
             min_col: parent.min_col.min(col),
             max_col: parent.max_col.max(col),
+            captures_white,
+            captures_black,
+            score_white: parent.score_white + delta_white + capture_delta_white,
+            score_black: parent.score_black + delta_black + capture_delta_black,
             player_to_play,
-            score_white: 0,
-            score_black: 0,
             score: 0,
         };
-
-        let before = |r: usize, c: usize| if r == row && c == col { TileType::Empty } else { effective_tile_at(r, c, &board, &parent.moves) };
-        let after = |r: usize, c: usize| effective_tile_at(r, c, &board, &this.moves);
-        
-        let delta_white = local_score(row, col, after, board, scorer, PlayerType::White) - local_score(row, col, before, board, scorer, PlayerType::White);
-        this.score_white = parent.score_white + delta_white;
-
-        let delta_black = local_score(row, col, after, board, scorer, PlayerType::Black) - local_score(row, col, before, board, scorer, PlayerType::Black);
-        this.score_black = parent.score_black + delta_black;
 
         this.score = if player_to_play == PlayerType::White {
             this.score_white
         } else {
             this.score_black
         };
-        
+
         this
     }
+}
 
-    
+/// Inserts `new_tile` at (row, col) in `moves` and returns the (white, black)
+/// score delta caused by that single change, scoped to the lines through it.
+fn apply_cell_change(
+    moves: &mut MoveMap,
+    board: &BoardState,
+    scorer: &PatternScorer,
+    row: usize,
+    col: usize,
+    new_tile: TileType,
+) -> (i32, i32) {
+    let before = |r: usize, c: usize| effective_tile_at(r, c, board, moves);
+    let before_white = local_score(row, col, before, board, scorer, PlayerType::White);
+    let before_black = local_score(row, col, before, board, scorer, PlayerType::Black);
+
+    moves.insert(board.index(row, col), new_tile);
+
+    let after = |r: usize, c: usize| effective_tile_at(r, c, board, moves);
+    let after_white = local_score(row, col, after, board, scorer, PlayerType::White);
+    let after_black = local_score(row, col, after, board, scorer, PlayerType::Black);
+
+    (after_white - before_white, after_black - before_black)
 }
 
 // gets the tile at a position given an initial board and set of moves made
@@ -250,6 +298,30 @@ fn local_score(
     total += scorer.score_line(&diagonal_line);
 
     total
+}
+
+/// Score contributed by one player's captured pairs, in isolation. Each pair
+/// below the win threshold is worth less than the open-three weight ("01110" =
+/// 5^3 = 125 in `default_automaton`), so grabbing a capture never outranks
+/// blocking or making a real three/four. The 5th pair (the standard Pente
+/// win-by-capture threshold) is worth far more than any pattern weight, so the
+/// engine will always take a move that wins outright by capture.
+const CAPTURE_PAIR_VALUE: i32 = 5_i32.pow(4);
+const CAPTURE_WIN_PAIRS: u32 = 5;
+const CAPTURE_WIN_SCORE: i32 = 5_i32.pow(9);
+
+fn capture_score(pairs: u32) -> i32 {
+    if pairs >= CAPTURE_WIN_PAIRS {
+        CAPTURE_WIN_SCORE
+    } else {
+        CAPTURE_PAIR_VALUE * pairs as i32
+    }
+}
+
+/// Capture score from one player's perspective: their own captures are good,
+/// captures made against them are equally bad.
+fn net_capture_score(own_pairs: u32, opponent_pairs: u32) -> i32 {
+    capture_score(own_pairs) - capture_score(opponent_pairs)
 }
 
 // uses a DFA to calculate a score given a pattern of inputs
