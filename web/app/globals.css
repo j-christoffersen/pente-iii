@@ -148,13 +148,54 @@ button:disabled {
   font-size: 0.8rem;
 }
 
-.debug-eval h2 {
+.debug-eval__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
   margin: 0 0 0.5rem;
+}
+
+.debug-eval h2 {
+  margin: 0;
   font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted);
+}
+
+.debug-toggle,
+.clear-board {
+  padding: 0.25rem 0.625rem;
+  font-size: 0.7rem;
+}
+
+.debug-color-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.debug-color-picker button {
+  padding: 0.25rem 0.625rem;
+  font-size: 0.7rem;
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--border);
+}
+
+.debug-color-picker button.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.clear-board {
+  margin-top: 0.5rem;
 }
 
 .debug-eval__row {
@@ -193,6 +234,20 @@ button:disabled {
   margin-top: 1rem;
   color: #f4212e;
   font-size: 0.875rem;
+}
+
+.winner-banner {
+  margin: 0 0 1rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.new-game {
+  margin: 0 0 1rem;
 }
 
 .result {

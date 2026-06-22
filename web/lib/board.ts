@@ -221,3 +221,55 @@ export function applyMove(
 export function isStarPoint(row: number, col: number): boolean {
   return STAR_POINTS.some(([r, c]) => r === row && c === col);
 }
+
+const LINE_AXES: ReadonlyArray<readonly [number, number]> = [
+  [0, 1],
+  [1, 0],
+  [1, 1],
+  [1, -1],
+];
+
+/** Length of the longest unbroken line of `player`'s stones through (row, col). */
+export function longestLineThrough(
+  board: Board,
+  row: number,
+  col: number,
+  player: Player,
+): number {
+  const cell = playerToCell(player);
+  let longest = 1;
+
+  for (const [dr, dc] of LINE_AXES) {
+    let count = 1;
+
+    let r = row + dr;
+    let c = col + dc;
+    while (isInBounds(r, c) && board[r]![c] === cell) {
+      count++;
+      r += dr;
+      c += dc;
+    }
+
+    r = row - dr;
+    c = col - dc;
+    while (isInBounds(r, c) && board[r]![c] === cell) {
+      count++;
+      r -= dr;
+      c -= dc;
+    }
+
+    longest = Math.max(longest, count);
+  }
+
+  return longest;
+}
+
+/** Win condition: five (or more) in a row through the just-played stone. */
+export function hasFiveInARow(
+  board: Board,
+  row: number,
+  col: number,
+  player: Player,
+): boolean {
+  return longestLineThrough(board, row, col, player) >= 5;
+}

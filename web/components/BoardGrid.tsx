@@ -13,6 +13,8 @@ interface BoardGridProps {
   canPlay: boolean;
   onPlay: (row: number, col: number) => void;
   highlight?: { row: number; col: number } | null;
+  /** When true, every cell is clickable (to place or remove a stone) regardless of `canPlay`. */
+  debugMode?: boolean;
 }
 
 export function BoardGrid({
@@ -21,6 +23,7 @@ export function BoardGrid({
   canPlay,
   onPlay,
   highlight,
+  debugMode = false,
 }: BoardGridProps) {
   return (
     <div className="board-wrap">
@@ -34,7 +37,7 @@ export function BoardGrid({
             const isHighlighted =
               highlight?.row === rowIndex && highlight?.col === colIndex;
             const star = cell === "empty" && isStarPoint(rowIndex, colIndex);
-            const playable = canPlay && cell === "empty";
+            const playable = debugMode || (canPlay && cell === "empty");
 
             return (
               <button
@@ -63,7 +66,11 @@ export function BoardGrid({
         )}
       </div>
       <p className="board-turn" aria-live="polite">
-        {canPlay ? "Your turn — Black" : `Opponent (${turn}) is moving…`}
+        {debugMode
+          ? "Debug mode — click a cell to place or remove a stone"
+          : canPlay
+            ? "Your turn — Black"
+            : `Opponent (${turn}) is moving…`}
       </p>
     </div>
   );

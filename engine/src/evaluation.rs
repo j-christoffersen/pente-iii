@@ -398,10 +398,20 @@ pub fn default_automaton() -> (TileDfa, PatternWeights) {
     ];
 
     let mut ac = TileDfa::new();
-    let mut weights = Vec::with_capacity(specs.len());
+    let mut weights = Vec::with_capacity(specs.len() * 2);
     for (pat, w) in specs {
         ac.add_pattern(&parse_pattern(pat));
         weights.push(*w);
+
+        // Also match the mirrored arrangement, since a line is always
+        // scanned in one fixed direction but the same tactical shape can
+        // occur built from either side. Skip palindromes (e.g. "0110") —
+        // registering them twice would double-count every match.
+        let reversed: String = pat.chars().rev().collect();
+        if reversed != *pat {
+            ac.add_pattern(&parse_pattern(&reversed));
+            weights.push(*w);
+        }
     }
     ac.build();
     (ac, weights)
