@@ -56,11 +56,17 @@ impl Search {
             ems_list.push(((r, c), ems));
         }
 
+        // Ascending: `score` is from the *next* mover's (opponent's)
+        // perspective, so the moves best for the current mover are the ones
+        // where the opponent is left worst off — i.e. the lowest scores.
         ems_list.sort_by(|a, b| a.1.score.cmp(&b.1.score));
 
         // if depth = 0, scores are final. Otherwise, keep iterating recursively until depth is reached.
         let moves_with_scores: Vec<((usize, usize), i32)> = if depth == 0 {
-            ems_list.iter().map(|(_, ems)| (ems.move_coords.unwrap(), ems.score)).collect()
+            // ems.score is the *opponent's* (next mover's) perspective right
+            // after this candidate move, same as every other ply here — negate
+            // it to get the value for the player actually choosing this move.
+            ems_list.iter().map(|(_, ems)| (ems.move_coords.unwrap(), -ems.score)).collect()
         } else {
             // prune to the top MOVE_SET_SIZE moves and continue recursively
             let top_moves_from_current_round_eval: Vec<&((usize, usize), EvaluatedMoveSet)> = ems_list.iter().take(MOVE_SET_SIZE).collect();
@@ -131,5 +137,25 @@ mod tests {
         assert!(row < board.height);
         assert!(col < board.width);
         assert_eq!(board.get_tile(row, col), TileType::Empty);
+    }
+
+    #[test]
+    fn find_best_move_picks_capture_among_many_candidates() {
+        // Regression test: with hundreds of empty candidates in the bounding
+        // box (far more than MOVE_SET_SIZE), the search must still surface a
+        // clearly winning capture rather than pruning it away before
+        // recursion. Also exercises the corrected mover convention: passing
+        // PlayerType::Black means Black makes this move.
+        let mut board = BoardState::new(19, 19);
+        board.set_tile(7, 6, TileType::Black);
+        board.set_tile(7, 7, TileType::White);
+        board.set_tile(7, 8, TileType::White);
+        board.set_tile(3, 3, TileType::Black);
+        board.set_tile(3, 4, TileType::Black);
+
+        let search = test_search();
+        let ((row, col), _score) = search.find_best_move(&board, PlayerType::Black, 1);
+
+        assert_eq!((row, col), (7, 9), "expected the capturing move to be chosen");
     }
 }

@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { findBestMove } from "@/lib/engine";
 import { decodeGameParam, type OpponentMoveResponse } from "@/lib/game";
-import { getOpponentMove } from "@/lib/opponent";
 import { OPPONENT_PLAYER, type Player } from "@/lib/players";
+
+const DEFAULT_SEARCH_DEPTH = 3;
 
 function parseGame(request: NextRequest, body?: unknown): string | null {
   const fromQuery = decodeGameParam(request.nextUrl.searchParams.get("game"));
@@ -31,9 +33,19 @@ function parsePlayer(body: unknown): Player {
   return OPPONENT_PLAYER;
 }
 
+function parseDepth(body: unknown): number {
+  if (body && typeof body === "object" && "depth" in body) {
+    const depth = (body as { depth: unknown }).depth;
+    if (typeof depth === "number" && Number.isInteger(depth) && depth >= 1) {
+      return depth;
+    }
+  }
+  return DEFAULT_SEARCH_DEPTH;
+}
+
 /**
  * GET /api/opponent-move?game=<encoded>
- * POST /api/opponent-move  { "game": "<encoded>", "player": "white" }
+ * POST /api/opponent-move  { "game": "<encoded>", "player": "white", "depth": 1 }
  */
 async function handleOpponentMove(request: NextRequest, body?: unknown) {
   const started = performance.now();
@@ -50,9 +62,10 @@ async function handleOpponentMove(request: NextRequest, body?: unknown) {
   }
 
   const player = parsePlayer(body);
+  const depth = parseDepth(body);
 
   try {
-    const move = await getOpponentMove(game, player);
+    const move = await findBestMove(game, player, depth);
     const response: OpponentMoveResponse = {
       game,
       moves: [move],

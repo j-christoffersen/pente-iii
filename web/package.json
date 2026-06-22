@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "build:engine": "cargo build --release --manifest-path ../engine/Cargo.toml"
   },
   "dependencies": {
     "next": "^15.2.4",

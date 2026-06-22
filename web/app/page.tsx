@@ -4,7 +4,8 @@ import { useCallback, useMemo, useState } from "react";
 
 import { BoardGrid } from "@/components/BoardGrid";
 import { applyMove, createEmptyBoard, encodeBoard, type Board } from "@/lib/board";
-import type { MoveScore } from "@/lib/game";
+import { evaluatePosition } from "@/lib/evaluate";
+import type { EvaluateResponse, MoveScore } from "@/lib/game";
 import { getOpponentMove } from "@/lib/opponent";
 import {
   HUMAN_PLAYER,
@@ -12,6 +13,12 @@ import {
   playerLabel,
   type Player,
 } from "@/lib/players";
+
+/**
+ * Shallow on purpose: lets the debug panel show the score of this exact
+ * opponent move rather than a multi-ply lookahead result.
+ */
+const DEBUG_SEARCH_DEPTH = 1;
 
 export default function Home() {
   const [board, setBoard] = useState<Board>(() => createEmptyBoard());
@@ -23,6 +30,11 @@ export default function Home() {
     black: 0,
     white: 0,
   });
+  const [humanMoveEval, setHumanMoveEval] = useState<EvaluateResponse | null>(
+    null,
+  );
+  const [opponentMoveEval, setOpponentMoveEval] =
+    useState<EvaluateResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -44,6 +56,7 @@ export default function Home() {
       const move = await getOpponentMove(
         encodeBoard(boardAfterHuman),
         OPPONENT_PLAYER,
+        DEBUG_SEARCH_DEPTH,
       );
       setLastOpponentMove(move);
       const result = applyMove(
@@ -60,6 +73,12 @@ export default function Home() {
         }));
       }
       setTurn(HUMAN_PLAYER);
+
+      try {
+        setOpponentMoveEval(await evaluatePosition(encodeBoard(result.board)));
+      } catch {
+        setOpponentMoveEval(null);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Opponent move failed");
       setTurn(OPPONENT_PLAYER);
@@ -83,7 +102,15 @@ export default function Home() {
         }));
       }
       setLastOpponentMove(null);
+      setOpponentMoveEval(null);
       setTurn(OPPONENT_PLAYER);
+
+      try {
+        setHumanMoveEval(await evaluatePosition(encodeBoard(result.board)));
+      } catch {
+        setHumanMoveEval(null);
+      }
+
       await runOpponentTurn(result.board);
     },
     [board, canPlay, runOpponentTurn],
@@ -94,8 +121,9 @@ export default function Home() {
       <header className="header">
         <h1>Pente</h1>
         <p>
-          You play Black. After each move, the opponent (White) responds via a
-          stubbed search — wire in the Rust engine later.
+          You play Black. After each move, the opponent (White) responds via
+          the Rust engine, searched at depth {DEBUG_SEARCH_DEPTH} for
+          debugging.
         </p>
       </header>
 
@@ -128,6 +156,22 @@ export default function Home() {
             </li>
           </ul>
 
+          <section className="debug-eval">
+            <h2>Debug: position score</h2>
+            <p className="debug-eval__row">
+              <span>After your move:</span>{" "}
+              {humanMoveEval
+                ? `white ${humanMoveEval.scoreWhite} · black ${humanMoveEval.scoreBlack}`
+                : "—"}
+            </p>
+            <p className="debug-eval__row">
+              <span>After opponent move:</span>{" "}
+              {opponentMoveEval
+                ? `white ${opponentMoveEval.scoreWhite} · black ${opponentMoveEval.scoreBlack}`
+                : "—"}
+            </p>
+          </section>
+
           <details className="encoded">
             <summary>Encoded position</summary>
             <code>{game}</code>
@@ -138,7 +182,7 @@ export default function Home() {
               Opponent played ({lastOpponentMove.row + 1},{" "}
               {lastOpponentMove.col + 1})
               {lastOpponentMove.score !== 0 && (
-                <> · score {lastOpponentMove.score}</>
+                <> · search score {lastOpponentMove.score}</>
               )}
             </p>
           )}

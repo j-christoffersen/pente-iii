@@ -115,8 +115,11 @@ impl<'a> EvaluatedMoveSet<'a> {
     ) -> Self {
 
         let mut moves = parent.moves.clone();
-        let player_to_play = parent.player_to_play.next();
-        let tile = TileType::from_player_type(player_to_play);
+        // The mover for this transition is whoever parent says is about to
+        // play; the new state then hands the turn to their opponent.
+        let mover = parent.player_to_play;
+        let next_to_play = mover.next();
+        let tile = TileType::from_player_type(mover);
 
         let (mut delta_white, mut delta_black) =
             apply_cell_change(&mut moves, board, scorer, row, col, tile);
@@ -124,7 +127,7 @@ impl<'a> EvaluatedMoveSet<'a> {
         // A move can capture bracketed opponent pairs along any of the 8
         // directions; each captured cell is cleared and re-scored too, since
         // its removal can open or close lines that don't pass through (row, col).
-        let captured = find_captures(board.width, board.height, row, col, player_to_play, |r, c| {
+        let captured = find_captures(board.width, board.height, row, col, mover, |r, c| {
             effective_tile_at(r, c, board, &moves)
         });
         for &(cr, cc) in &captured {
@@ -136,7 +139,7 @@ impl<'a> EvaluatedMoveSet<'a> {
         let captured_pairs = (captured.len() / 2) as u32;
         let mut captures_white = parent.captures_white;
         let mut captures_black = parent.captures_black;
-        match player_to_play {
+        match mover {
             PlayerType::White => captures_white += captured_pairs,
             PlayerType::Black => captures_black += captured_pairs,
         }
@@ -158,11 +161,11 @@ impl<'a> EvaluatedMoveSet<'a> {
             captures_black,
             score_white: parent.score_white + delta_white + capture_delta_white,
             score_black: parent.score_black + delta_black + capture_delta_black,
-            player_to_play,
+            player_to_play: next_to_play,
             score: 0,
         };
 
-        this.score = if player_to_play == PlayerType::White {
+        this.score = if next_to_play == PlayerType::White {
             this.score_white
         } else {
             this.score_black
@@ -419,11 +422,18 @@ mod tests {
 
         let full = EvaluatedMoveSet::from_board_state(&board, &scorer, PlayerType::Black);
 
-        let parent = EvaluatedMoveSet::from_board_state(&empty_booard, &scorer, PlayerType::White);
+        // parent.player_to_play is the mover, so Black is set to play here.
+        let parent = EvaluatedMoveSet::from_board_state(&empty_booard, &scorer, PlayerType::Black);
         let inc = EvaluatedMoveSet::from_parent(&parent, &scorer, &empty_booard, 7, 7);
 
-        assert!(full.score != 0);
-        assert_eq!(full.score, inc.score);
+        // Compare score_white/score_black directly rather than `.score`: full
+        // and inc select `.score` from different player_to_play values (full
+        // uses the param passed in; inc uses the mover's opponent, since a
+        // move was just made), so `.score` alone isn't an apples-to-apples
+        // comparison here.
+        assert!(full.score_black != 0);
+        assert_eq!(full.score_white, inc.score_white);
+        assert_eq!(full.score_black, inc.score_black);
     }
 
     #[test]
@@ -445,7 +455,8 @@ mod tests {
 
         let full = EvaluatedMoveSet::from_board_state(&full_board, &scorer, PlayerType::Black);
 
-        let parent = EvaluatedMoveSet::from_board_state(&pre_board, &scorer, PlayerType::White);
+        // parent.player_to_play is the mover, so Black is set to play here.
+        let parent = EvaluatedMoveSet::from_board_state(&pre_board, &scorer, PlayerType::Black);
         let inc = EvaluatedMoveSet::from_parent(&parent, &scorer, &pre_board, 7, 9);
 
         assert_eq!(inc.captures_black, 1);

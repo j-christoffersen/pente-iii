@@ -132,6 +132,39 @@ button:disabled {
   cursor: not-allowed;
 }
 
+.captures {
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.debug-eval {
+  margin: 0 0 1rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px dashed var(--border);
+  border-radius: 0.375rem;
+  font-size: 0.8rem;
+}
+
+.debug-eval h2 {
+  margin: 0 0 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.debug-eval__row {
+  margin: 0.25rem 0;
+}
+
+.debug-eval__row span {
+  color: var(--muted);
+}
+
 .encoded {
   margin-top: 1rem;
   font-size: 0.8rem;

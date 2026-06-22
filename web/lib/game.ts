@@ -13,6 +13,12 @@ export interface OpponentMoveResponse {
   duration_ms: number;
 }
 
+/** Static (no-search) position evaluation from the engine. */
+export interface EvaluateResponse {
+  scoreWhite: number;
+  scoreBlack: number;
+}
+
 export function decodeGameParam(raw: string | null | undefined): EncodedGame | null {
   if (!raw) {
     return null;
