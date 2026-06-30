@@ -25,11 +25,15 @@ impl Search {
         Self { scorer }
     }
 
+    /// `depth` is plies of *opponent* lookahead baked into the returned
+    /// score, on top of the move itself. `depth == 0` ranks candidates by
+    /// their own immediate impact only, with no anticipated reply — that's
+    /// the score that matches a static (no-search) evaluation of the
+    /// resulting position. Each additional depth adds one more ply of the
+    /// opponent's (then your own, etc.) best anticipated response.
     pub fn find_best_move(self, board: &BoardState, color: PlayerType, depth: usize) -> ((usize, usize), i32) {
-        debug_assert!(depth >= 1, "Depth must be at least 1");
-
         let base_evaluation = EvaluatedMoveSet::from_board_state(board, &self.scorer, color);
-        
+
         self.evaluate_round_moves(&base_evaluation, depth)
     }
 
@@ -157,5 +161,27 @@ mod tests {
         let ((row, col), _score) = search.find_best_move(&board, PlayerType::Black, 1);
 
         assert_eq!((row, col), (7, 9), "expected the capturing move to be chosen");
+    }
+
+    #[test]
+    fn depth_zero_score_matches_static_evaluation_of_the_move() {
+        // depth=0 means "no opponent lookahead": the returned score should
+        // be exactly the move's own immediate impact, equal to evaluating
+        // the resulting board with no search at all.
+        let mut board = BoardState::new(19, 19);
+        board.set_tile(7, 6, TileType::Black);
+        board.set_tile(7, 7, TileType::White);
+        board.set_tile(7, 8, TileType::White);
+
+        let search = test_search();
+        let ((row, col), score) = search.find_best_move(&board, PlayerType::Black, 0);
+        assert_eq!((row, col), (7, 9), "expected the capturing move to be chosen");
+
+        let (dfa, weights) = default_automaton();
+        let scorer = PatternScorer::new(dfa, weights);
+        let base = EvaluatedMoveSet::from_board_state(&board, &scorer, PlayerType::Black);
+        let after = EvaluatedMoveSet::from_parent(&base, &scorer, &board, row, col);
+
+        assert_eq!(score, after.score_black);
     }
 }

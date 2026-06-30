@@ -36,7 +36,7 @@ function parsePlayer(body: unknown): Player {
 function parseDepth(body: unknown): number {
   if (body && typeof body === "object" && "depth" in body) {
     const depth = (body as { depth: unknown }).depth;
-    if (typeof depth === "number" && Number.isInteger(depth) && depth >= 1) {
+    if (typeof depth === "number" && Number.isInteger(depth) && depth >= 0) {
       return depth;
     }
   }

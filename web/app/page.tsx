@@ -22,10 +22,13 @@ import {
 } from "@/lib/players";
 
 /**
- * Shallow on purpose: lets the debug panel show the score of this exact
- * opponent move rather than a multi-ply lookahead result.
+ * Zero plies of opponent lookahead: the returned score is the move's own
+ * immediate impact only, matching a static (no-search) evaluation of the
+ * resulting board. Depth >= 1 would bake the opponent's best anticipated
+ * reply into the score, which no longer matches "the score of this exact
+ * move."
  */
-const DEBUG_SEARCH_DEPTH = 1;
+const DEBUG_SEARCH_DEPTH = 0;
 
 /** Standard Pente win condition: 5 captured pairs. */
 const CAPTURE_PAIRS_TO_WIN = 5;
@@ -362,7 +365,11 @@ export default function Home() {
               Opponent played ({lastOpponentMove.row + 1},{" "}
               {lastOpponentMove.col + 1})
               {lastOpponentMove.score !== 0 && (
-                <> · search score {lastOpponentMove.score}</>
+                <>
+                  {" "}
+                  · search score {lastOpponentMove.score} (depth{" "}
+                  {lastOpponentMove.depth})
+                </>
               )}
             </p>
           )}

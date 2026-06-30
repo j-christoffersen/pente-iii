@@ -303,21 +303,25 @@ fn local_score(
     total
 }
 
+/// Shared ceiling for either way of winning Pente outright (5 captured pairs
+/// or 5 in a row). Far above any other pattern weight (the largest is 5^7 =
+/// 78125 for a live four), so a winning position always dominates the score
+/// regardless of what else is on the board.
+const WIN_SCORE: i32 = 5_i32.pow(9);
+
 /// Score contributed by one player's captured pairs, in isolation. Each pair
 /// below the win threshold (5^4 = 625) sits between the weight of making your
 /// own open three ("01110" = 5^3 = 125) and the weight of an opponent's open
 /// three going unanswered ("02220" = 5^5 = 3125): a capture is a better move
 /// than just extending your own three, but it should never be taken in place
 /// of blocking a real threat from the opponent. The 5th pair (the standard
-/// Pente win-by-capture threshold) is worth far more than any pattern weight,
-/// so the engine will always take a move that wins outright by capture.
+/// Pente win-by-capture threshold) hits `WIN_SCORE`, same as five-in-a-row.
 const CAPTURE_PAIR_VALUE: i32 = 5_i32.pow(4);
 const CAPTURE_WIN_PAIRS: u32 = 5;
-const CAPTURE_WIN_SCORE: i32 = 5_i32.pow(9);
 
 fn capture_score(pairs: u32) -> i32 {
     if pairs >= CAPTURE_WIN_PAIRS {
-        CAPTURE_WIN_SCORE
+        WIN_SCORE
     } else {
         CAPTURE_PAIR_VALUE * pairs as i32
     }
@@ -365,6 +369,13 @@ fn parse_pattern(s: &str) -> Vec<TurnTileType> {
 /// 1 inidicates the currently to move player's piece, 2 indicates their opponent's piece.
 pub fn default_automaton() -> (TileDfa, PatternWeights) {
     let specs: &[(&str, i32)] = &[
+        // Five (or more) in a row is an outright win, so it gets the same
+        // ceiling as the capture win condition (see `WIN_SCORE`). A run of
+        // 6+ in a row contains multiple overlapping "11111" matches, which
+        // just multiplies an already-dominant score — still unmistakably a
+        // win, not a problem worth guarding against.
+        ("11111", WIN_SCORE),
+        ("22222", -WIN_SCORE),
         ("120", 5_i32.pow(0)),
         ("210", -(5_i32.pow(0))),
         ("010", 5_i32.pow(1)),
@@ -496,5 +507,36 @@ mod tests {
         let largest_pattern_weight = 5_i32.pow(7);
         assert!(capture_score(5) > largest_pattern_weight);
         assert!(net_capture_score(5, 0) > largest_pattern_weight);
+    }
+
+    #[test]
+    fn five_in_a_row_hits_win_score() {
+        let (dfa, weights) = default_automaton();
+        let scorer = PatternScorer::new(dfa, weights);
+
+        let mut board = BoardState::new(15, 15);
+        for col in 3..8 {
+            board.set_tile(7, col, Black);
+        }
+
+        let evaluated = EvaluatedMoveSet::from_board_state(&board, &scorer, PlayerType::Black);
+
+        assert!(evaluated.score_black >= WIN_SCORE);
+        assert!(evaluated.score_white <= -WIN_SCORE);
+    }
+
+    #[test]
+    fn four_in_a_row_does_not_reach_win_score() {
+        let (dfa, weights) = default_automaton();
+        let scorer = PatternScorer::new(dfa, weights);
+
+        let mut board = BoardState::new(15, 15);
+        for col in 3..7 {
+            board.set_tile(7, col, Black);
+        }
+
+        let evaluated = EvaluatedMoveSet::from_board_state(&board, &scorer, PlayerType::Black);
+
+        assert!(evaluated.score_black < WIN_SCORE);
     }
 }

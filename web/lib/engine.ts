@@ -38,7 +38,8 @@ async function runEngine(args: string[]): Promise<string> {
 
 interface MoveOutput {
   position: string;
-  moves: MoveScore[];
+  moves: Array<{ row: number; col: number; score: number }>;
+  depth: number;
   duration_ms: number;
 }
 
@@ -59,7 +60,7 @@ export async function findBestMove(
   if (!move) {
     throw new Error("Engine returned no candidate moves");
   }
-  return move;
+  return { ...move, depth: parsed.depth };
 }
 
 interface EvaluateOutput {

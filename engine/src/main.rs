@@ -45,6 +45,8 @@ struct MoveOutput {
     /// Echo of the input position for callers that pipe JSON.
     position: String,
     moves: Vec<MoveScore>,
+    /// Search depth (plies) used to find these moves.
+    depth: usize,
     /// Wall-clock time for parse + search, in milliseconds.
     duration_ms: u64,
 }
@@ -97,6 +99,7 @@ fn main() -> Result<()> {
     let out = MoveOutput {
         position: args.position,
         moves: vec![MoveScore { row, col, score }],
+        depth: args.depth,
         duration_ms,
     };
     println!("{}", serde_json::to_string_pretty(&out).context("serialize output")?);

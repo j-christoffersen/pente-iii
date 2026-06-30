@@ -5,6 +5,8 @@ export interface MoveScore {
   row: number;
   col: number;
   score: number;
+  /** Search depth (plies) the engine used to find this move. */
+  depth: number;
 }
 
 export interface OpponentMoveResponse {
