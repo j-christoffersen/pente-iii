@@ -33,7 +33,12 @@ function parsePlayer(body: unknown): Player {
   return OPPONENT_PLAYER;
 }
 
-function parseDepth(body: unknown): number {
+function parseDepth(request: NextRequest, body: unknown): number {
+  const fromQuery = request.nextUrl.searchParams.get("depth");
+  if (fromQuery !== null) {
+    const n = parseInt(fromQuery, 10);
+    if (Number.isInteger(n) && n >= 0) return n;
+  }
   if (body && typeof body === "object" && "depth" in body) {
     const depth = (body as { depth: unknown }).depth;
     if (typeof depth === "number" && Number.isInteger(depth) && depth >= 0) {
@@ -62,7 +67,7 @@ async function handleOpponentMove(request: NextRequest, body?: unknown) {
   }
 
   const player = parsePlayer(body);
-  const depth = parseDepth(body);
+  const depth = parseDepth(request, body);
 
   try {
     const move = await findBestMove(game, player, depth);
@@ -78,6 +83,10 @@ async function handleOpponentMove(request: NextRequest, body?: unknown) {
       { status: 422 },
     );
   }
+}
+
+export async function GET(request: NextRequest) {
+  return handleOpponentMove(request);
 }
 
 export async function POST(request: NextRequest) {

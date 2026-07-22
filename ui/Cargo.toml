@@ -1,0 +1,13 @@
+[package]
+name = "pente-ui"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "pente-ui"
+path = "src/main.rs"
+
+[dependencies]
+macroquad = "0.4"
+pente-engine = { path = "../engine" }
+serde_json = { version = "1.0", default-features = false, features = ["std"] }
