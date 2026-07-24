@@ -99,9 +99,32 @@ fn is_special(row: usize, col: usize) -> bool {
     dr.abs() == dc.abs() && (dr.abs() == 3 || dr.abs() == 6)
 }
 
+// Pick the edge sprite at position `pos` (1..last) along any edge.
+// Positions below mid use the left array, above mid use the right array, at mid use center.
+// left_offset: (3 - left_start % 3) % 3  so index 0 falls on the first tile after the corner
+// right_offset: (3 - (mid+1) % 3) % 3 — same logic from the other corner; mid+1=12, 12%3=0 → always 0
+fn edge_sprite(
+    pos: usize,
+    mid: usize,
+    left: &[(usize, usize); 3],
+    center: (usize, usize),
+    right: &[(usize, usize); 3],
+    left_offset: usize,
+    right_offset: usize,
+) -> (usize, usize) {
+    if pos == mid {
+        center
+    } else if pos < mid {
+        left[(pos + left_offset) % 3]
+    } else {
+        right[(pos + right_offset) % 3]
+    }
+}
+
 fn draw_board(sprites: &Texture2D, board: &BoardState, ox: f32, oy: f32, tile: f32) {
     use std::f32::consts::{FRAC_PI_2, PI};
     let last = DISPLAY_TILES - 1; // 22
+    let mid = DISPLAY_TILES / 2;  // 11
 
     for dr in 0..DISPLAY_TILES {
         for dc in 0..DISPLAY_TILES {
@@ -115,7 +138,6 @@ fn draw_board(sprites: &Texture2D, board: &BoardState, ox: f32, oy: f32, tile: f
 
             if outer_row || outer_col {
                 if outer_row && outer_col {
-                    // Outer corner — default sprite faces UL
                     let rot = match (dr == 0, dc == 0) {
                         (true,  true)  => 0.0,
                         (true,  false) => FRAC_PI_2,
@@ -123,29 +145,21 @@ fn draw_board(sprites: &Texture2D, board: &BoardState, ox: f32, oy: f32, tile: f
                         (false, true)  => 3.0 * FRAC_PI_2,
                     };
                     draw_sprite_rot(sprites, SP_OUTER_CORNER, x, y, tile, rot);
+                } else if dr == 0 {
+                    let spr = edge_sprite(dc, mid, &SP_OUTER_EDGE_LEFT, SP_BORDER_CENTER[3], &SP_OUTER_EDGE_RIGHT, 2, 2);
+                    draw_sprite_rot(sprites, spr, x, y, tile, 0.0);
+                } else if dr == last {
+                    let spr = edge_sprite(last - dc, mid, &SP_OUTER_EDGE_LEFT, SP_BORDER_CENTER[3], &SP_OUTER_EDGE_RIGHT, 2, 2);
+                    draw_sprite_rot(sprites, spr, x, y, tile, PI);
+                } else if dc == last {
+                    let spr = edge_sprite(dr, mid, &SP_OUTER_EDGE_LEFT, SP_BORDER_CENTER[3], &SP_OUTER_EDGE_RIGHT, 2, 2);
+                    draw_sprite_rot(sprites, spr, x, y, tile, FRAC_PI_2);
                 } else {
-                    // Outer edge — 3-sprite repeating pattern
-                    let (sprite, rot) = if outer_row {
-                        let rot = if dr == 0 { 0.0 } else { PI };
-                        if dc == DISPLAY_TILES / 2 {
-                            (SP_BORDER_CENTER[3], rot)
-                        } else if dc < DISPLAY_TILES / 2 {
-                            let idx  = (dc + 2) % 3;
-                            (SP_OUTER_EDGE_LEFT[idx], rot)
-                        } else {
-                            let idx  = (dc + 2) % 3;
-                            (SP_OUTER_EDGE_RIGHT[idx], rot)
-                        }
-                    } else {
-                        let rot = if dc == last { FRAC_PI_2 } else { 3.0 * FRAC_PI_2 };
-                        let idx = if dr < DISPLAY_TILES / 2 {(dr + 2) % 3} else {(dr + 1) % 3};
-                        (SP_OUTER_EDGE_RIGHT[idx], rot)
-                    };
-                    draw_sprite_rot(sprites, sprite, x, y, tile, rot);
+                    let spr = edge_sprite(last - dr, mid, &SP_OUTER_EDGE_LEFT, SP_BORDER_CENTER[3], &SP_OUTER_EDGE_RIGHT, 2, 2);
+                    draw_sprite_rot(sprites, spr, x, y, tile, 3.0 * FRAC_PI_2);
                 }
             } else if inner_row || inner_col {
                 if inner_row && inner_col {
-                    // Inner corner — default sprite faces UL
                     let rot = match (dr == 1, dc == 1) {
                         (true,  true)  => 0.0,
                         (true,  false) => FRAC_PI_2,
@@ -153,19 +167,20 @@ fn draw_board(sprites: &Texture2D, board: &BoardState, ox: f32, oy: f32, tile: f
                         (false, true)  => 3.0 * FRAC_PI_2,
                     };
                     draw_sprite_rot(sprites, SP_INNER_CORNER, x, y, tile, rot);
+                } else if dr == 1 {
+                    let spr = edge_sprite(dc, mid, &SP_INNER_EDGE_LEFT, SP_BORDER_CENTER[2], &SP_INNER_EDGE_RIGHT, 1, 0);
+                    draw_sprite_rot(sprites, spr, x, y, tile, 0.0);
+                } else if dr == last - 1 {
+                    let spr = edge_sprite(last - dc, mid, &SP_INNER_EDGE_LEFT, SP_BORDER_CENTER[2], &SP_INNER_EDGE_RIGHT, 1, 0);
+                    draw_sprite_rot(sprites, spr, x, y, tile, PI);
+                } else if dc == last - 1 {
+                    let spr = edge_sprite(dr, mid, &SP_INNER_EDGE_LEFT, SP_BORDER_CENTER[2], &SP_INNER_EDGE_RIGHT, 1, 0);
+                    draw_sprite_rot(sprites, spr, x, y, tile, FRAC_PI_2);
                 } else {
-                    // Inner edge — 3-sprite repeating pattern
-                    let (idx, rot) = if inner_row {
-                        let rot = if dr == 1 { 0.0 } else { PI };
-                        ((dc.wrapping_sub(2)) % 3, rot)
-                    } else {
-                        let rot = if dc == last - 1 { FRAC_PI_2 } else { 3.0 * FRAC_PI_2 };
-                        ((dr.wrapping_sub(2)) % 3, rot)
-                    };
-                    draw_sprite_rot(sprites, SP_INNER_EDGE_LEFT[idx], x, y, tile, rot);
+                    let spr = edge_sprite(last - dr, mid, &SP_INNER_EDGE_LEFT, SP_BORDER_CENTER[2], &SP_INNER_EDGE_RIGHT, 1, 0);
+                    draw_sprite_rot(sprites, spr, x, y, tile, 3.0 * FRAC_PI_2);
                 }
             } else {
-                // Board interior
                 let br = dr - BORDER;
                 let bc = dc - BORDER;
                 let base = if is_special(br, bc) { SP_SPECIAL } else { SP_NORMAL };
