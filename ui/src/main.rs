@@ -2,6 +2,78 @@ use macroquad::prelude::*;
 use pente_engine::board::BoardState;
 use pente_engine::tile::{PlayerType, TileType};
 
+const BG_VERT: &str = r#"
+#version 100
+attribute vec3 position;
+attribute vec2 texcoord;
+uniform mat4 Model;
+uniform mat4 Projection;
+void main() {
+    gl_Position = Projection * Model * vec4(position, 1.0);
+}
+"#;
+
+const BG_FRAG: &str = r#"
+#version 100
+precision highp float;
+uniform vec2 resolution;
+uniform float time;
+
+#define SPIN_ROTATION -2.0
+#define SPIN_SPEED 7.0
+#define CONTRAST 3.5
+#define LIGHTING 0.4
+#define SPIN_AMOUNT 0.25
+#define PIXEL_FILTER 745.0
+#define SPIN_EASE 1.0
+
+#define COLOUR_1 vec4(0.18, 0.78, 0.26, 1.0)
+#define COLOUR_2 vec4(0.04, 0.30, 0.10, 1.0)
+#define COLOUR_3 vec4(0.02, 0.08, 0.03, 1.0)
+
+vec4 effect(vec2 screenSize, vec2 screen_coords) {
+    float pixel_size = length(screenSize) / PIXEL_FILTER;
+    vec2 uv = (floor(screen_coords * (1.0 / pixel_size)) * pixel_size
+               - 0.5 * screenSize) / length(screenSize);
+    float uv_len = length(uv);
+
+    float speed = SPIN_ROTATION * SPIN_EASE * 0.2 + 302.2;
+    float new_pixel_angle = atan(uv.y, uv.x) + speed
+        - SPIN_EASE * 20.0 * (SPIN_AMOUNT * uv_len + (1.0 - SPIN_AMOUNT));
+    vec2 mid = screenSize / length(screenSize) * 0.5;
+    uv = vec2(uv_len * cos(new_pixel_angle) + mid.x,
+              uv_len * sin(new_pixel_angle) + mid.y) - mid;
+
+    uv *= 30.0;
+    speed = time * SPIN_SPEED;
+    vec2 uv2 = vec2(uv.x + uv.y);
+
+    for (int i = 0; i < 5; i++) {
+        uv2 += sin(max(uv.x, uv.y)) + uv;
+        uv  += 0.5 * vec2(cos(5.1123314 + 0.353 * uv2.y + speed * 0.131121),
+                           sin(uv2.x - 0.113 * speed));
+        uv  -= cos(uv.x + uv.y) - sin(uv.x * 0.711 - uv.y);
+    }
+
+    float contrast_mod = 0.25 * CONTRAST + 0.5 * SPIN_AMOUNT + 1.2;
+    float paint_res = min(2.0, max(0.0, length(uv) * 0.035 * contrast_mod));
+    float c1p = max(0.0, 1.0 - contrast_mod * abs(1.0 - paint_res));
+    float c2p = max(0.0, 1.0 - contrast_mod * abs(paint_res));
+    float c3p = 1.0 - min(1.0, c1p + c2p);
+    float light = (LIGHTING - 0.2) * max(c1p * 5.0 - 4.0, 0.0)
+                + LIGHTING * max(c2p * 5.0 - 4.0, 0.0);
+
+    return (0.3 / CONTRAST) * COLOUR_1
+         + (1.0 - 0.3 / CONTRAST) * (COLOUR_1 * c1p + COLOUR_2 * c2p
+             + vec4(c3p * COLOUR_3.rgb, c3p * COLOUR_1.a))
+         + light;
+}
+
+void main() {
+    gl_FragColor = effect(resolution, gl_FragCoord.xy);
+}
+"#;
+
 #[cfg(not(target_arch = "wasm32"))]
 use pente_engine::evaluation::{default_automaton, PatternScorer};
 #[cfg(not(target_arch = "wasm32"))]
@@ -42,18 +114,23 @@ enum Phase {
 }
 
 fn window_conf() -> Conf {
-    let px = (DISPLAY_TILES * 32) as i32; // 1 sprite px = 2 canvas px → tile = 32
     Conf {
         window_title: String::from("Pente"),
-        window_width: px,
-        window_height: px,
-        window_resizable: false,
+        window_resizable: true,
         ..Default::default()
     }
 }
 
 fn layout() -> (f32, f32, f32) {
-    (SPRITE_PX * 2.0, 0.0, 0.0) // fixed 2× scale; canvas is exactly the board size
+    let sw = screen_width();
+    let sh = screen_height();
+    // largest integer pixel-art scale that fits the shorter dimension
+    let scale = ((sw.min(sh) / (DISPLAY_TILES as f32 * SPRITE_PX)).floor() as usize).max(1);
+    let tile = SPRITE_PX * scale as f32;
+    let board_px = tile * DISPLAY_TILES as f32;
+    let ox = ((sw - board_px) / 2.0).floor();
+    let oy = ((sh - board_px) / 2.0).floor();
+    (tile, ox, oy)
 }
 
 fn draw_sprite(sprites: &Texture2D, (sc, sr): (usize, usize), x: f32, y: f32, tile: f32) {
@@ -294,11 +371,24 @@ fn draw_message(msg: &str, ox: f32, oy: f32, board_px: f32) {
 #[macroquad::main(window_conf)]
 async fn main() {
     let sprites = load_texture("assets/sprites-3.png").await.unwrap_or_else(|e| {
-        // Fallback so the title at least renders even if sprites are missing.
         eprintln!("sprites load error: {e:?}");
         Texture2D::empty()
     });
     sprites.set_filter(FilterMode::Nearest);
+
+    let bg_material = load_material(
+        ShaderSource::Glsl { vertex: BG_VERT, fragment: BG_FRAG },
+        MaterialParams {
+            uniforms: vec![
+                UniformDesc::new("resolution", UniformType::Float2),
+                UniformDesc::new("time", UniformType::Float1),
+            ],
+            ..Default::default()
+        },
+    );
+    if let Err(ref e) = bg_material {
+        eprintln!("bg shader error: {e:?}");
+    }
 
     let mut board = BoardState::new(BOARD_SIZE, BOARD_SIZE);
     let mut phase = Phase::Human;
@@ -390,9 +480,18 @@ async fn main() {
         }
 
         // --- Render ---
-        clear_background(BLACK);
+        clear_background(Color::from_hex(0x131F15));
 
-        draw_text("PENTE", 10.0, 24.0, 24.0, WHITE);
+        match &bg_material {
+            Ok(mat) => {
+                mat.set_uniform("resolution", (screen_width(), screen_height()));
+                mat.set_uniform("time", get_time() as f32);
+                gl_use_material(mat);
+                draw_rectangle(0.0, 0.0, screen_width(), screen_height(), WHITE);
+                gl_use_default_material();
+            }
+            Err(_) => {}
+        }
 
         draw_board(&sprites, &board, ox, oy, tile);
 

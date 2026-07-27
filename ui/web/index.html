@@ -8,24 +8,18 @@
         html, body {
             margin: 0;
             padding: 0;
-            background: #000;
-            overflow: auto;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #131F15;
         }
         canvas {
             display: block;
+            width: 100%;
+            height: 100%;
             image-rendering: pixelated;
         }
     </style>
-    <script>
-        // Set canvas CSS size before macroquad reads clientWidth.
-        // DISPLAY_TILES = BOARD_SIZE(19) + BORDER*2(4) = 23; tile = 16px * 2x = 32px
-        (function() {
-            var px = (19 + 4) * 32 + "px";
-            var s = document.createElement("style");
-            s.textContent = "#glcanvas { width: " + px + "; height: " + px + "; }";
-            document.head.appendChild(s);
-        })();
-    </script>
 </head>
 <body>
     <canvas id="glcanvas" tabindex="0"></canvas>
