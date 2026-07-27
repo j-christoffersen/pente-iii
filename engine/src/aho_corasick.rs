@@ -16,7 +16,7 @@ pub struct Match {
     pub pattern_id: usize,
 }
 
-// One is the currently to move player's piece, Two is their opponent's piece, Empty is an empty tile.
+// Two is the currently to move player's piece, One is their opponent's piece, Empty is an empty tile.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TurnTileType {
@@ -40,11 +40,11 @@ impl TurnTileType {
     #[inline]
     pub fn from_tile_type(player_to_play: PlayerType, tile_type: TileType) -> Self {
         match (player_to_play, tile_type) {
-            (PlayerType::White, TileType::White) => TurnTileType::One,
-            (PlayerType::White, TileType::Black) => TurnTileType::Two,
+            (PlayerType::White, TileType::White) => TurnTileType::Two,
+            (PlayerType::White, TileType::Black) => TurnTileType::One,
             (PlayerType::White, TileType::Empty) => TurnTileType::Empty,
-            (PlayerType::Black, TileType::White) => TurnTileType::Two,
-            (PlayerType::Black, TileType::Black) => TurnTileType::One,
+            (PlayerType::Black, TileType::White) => TurnTileType::One,
+            (PlayerType::Black, TileType::Black) => TurnTileType::Two,
             (PlayerType::Black, TileType::Empty) => TurnTileType::Empty,
         }
     }

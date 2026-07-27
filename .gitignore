@@ -2,3 +2,4 @@ cargo.lock
 target/
 node_modules/
 web/.next/
+engine/ai_debug.log

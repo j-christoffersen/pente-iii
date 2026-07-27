@@ -340,15 +340,9 @@ export default function Home() {
             ) : (
               <>
                 <p className="debug-eval__row">
-                  <span>After your move:</span>{" "}
+                  <span>Current Board Scores:</span>{" "}
                   {humanMoveEval
                     ? `white ${humanMoveEval.scoreWhite} · black ${humanMoveEval.scoreBlack}`
-                    : "—"}
-                </p>
-                <p className="debug-eval__row">
-                  <span>After opponent move:</span>{" "}
-                  {opponentMoveEval
-                    ? `white ${opponentMoveEval.scoreWhite} · black ${opponentMoveEval.scoreBlack}`
                     : "—"}
                 </p>
               </>

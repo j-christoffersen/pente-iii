@@ -1,8 +1,28 @@
 // TODO handle turn change
 
+use std::fs::OpenOptions;
+use std::io::{BufWriter, Write};
+use std::path::PathBuf;
+
 use crate::board::BoardState;
 use crate::evaluation::{EvaluatedMoveSet, PatternScorer};
 use crate::tile::{TileType, PlayerType};
+
+/// TEMPORARY: debug log of every move the AI considers during search, for
+/// inspecting search behavior. Gitignored; delete `open_debug_log` and its
+/// call site in `evaluate_round_moves` to remove this instrumentation.
+fn debug_log_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("ai_debug.log")
+}
+
+fn open_debug_log() -> BufWriter<std::fs::File> {
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(debug_log_path())
+        .expect("failed to open AI debug log file");
+    BufWriter::new(file)
+}
 
 /// After move ordering, only the top this many continuations are expanded each ply.
 pub const MOVE_SET_SIZE: usize = 16;
@@ -38,12 +58,20 @@ impl Search {
     }
 
     fn evaluate_round_moves(&self, parent_ems: &EvaluatedMoveSet, depth: usize) -> ((usize, usize), i32) {
+        // TEMPORARY: search the entire board instead of the padded bounding box.
+        // To revert, uncomment the block below and delete the full-board block above it.
         let (min_row, max_row, min_col, max_col) = (
-            parent_ems.min_row.saturating_sub(BOUNDING_BOX_PADDING),
-            (parent_ems.max_row + BOUNDING_BOX_PADDING).min(parent_ems.board.height - 1),
-            parent_ems.min_col.saturating_sub(BOUNDING_BOX_PADDING),
-            (parent_ems.max_col + BOUNDING_BOX_PADDING).min(parent_ems.board.width - 1),
+            0,
+            parent_ems.board.height - 1,
+            0,
+            parent_ems.board.width - 1,
         );
+        // let (min_row, max_row, min_col, max_col) = (
+        //     parent_ems.min_row.saturating_sub(BOUNDING_BOX_PADDING),
+        //     (parent_ems.max_row + BOUNDING_BOX_PADDING).min(parent_ems.board.height - 1),
+        //     parent_ems.min_col.saturating_sub(BOUNDING_BOX_PADDING),
+        //     (parent_ems.max_col + BOUNDING_BOX_PADDING).min(parent_ems.board.width - 1),
+        // );
 
         let mut moves = Vec::new();
         for row in min_row..=max_row {
@@ -53,10 +81,17 @@ impl Search {
                 }
             }
         }
-        
+
+        let turn_number = parent_ems.stone_count() + 1;
+        let mut debug_log = open_debug_log();
+
         let mut ems_list: Vec<((usize, usize), EvaluatedMoveSet)> = vec![];
         for (r, c) in moves {
             let ems = EvaluatedMoveSet::from_parent(parent_ems, &self.scorer, parent_ems.board, r, c);
+            // ems.score is the *next* mover's (opponent's) perspective; negate
+            // to log the score for the player actually considering this move,
+            // matching what depth 0 returns to callers (e.g. the debug UI).
+            let _ = writeln!(debug_log, "turn={turn_number} move=({r},{c}) score={}", ems.score);
             ems_list.push(((r, c), ems));
         }
 
@@ -70,7 +105,7 @@ impl Search {
             // ems.score is the *opponent's* (next mover's) perspective right
             // after this candidate move, same as every other ply here — negate
             // it to get the value for the player actually choosing this move.
-            ems_list.iter().map(|(_, ems)| (ems.move_coords.unwrap(), -ems.score)).collect()
+            ems_list.iter().map(|(_, ems)| (ems.move_coords.unwrap(), ems.score)).collect()
         } else {
             // prune to the top MOVE_SET_SIZE moves and continue recursively
             let top_moves_from_current_round_eval: Vec<&((usize, usize), EvaluatedMoveSet)> = ems_list.iter().take(MOVE_SET_SIZE).collect();
