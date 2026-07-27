@@ -173,6 +173,22 @@ impl<'a> EvaluatedMoveSet<'a> {
 
         this
     }
+
+    /// Count of non-empty cells in the effective position (base board plus
+    /// `moves` overlay). Used to derive a 1-indexed turn number for debug logging.
+    pub fn stone_count(&self) -> usize {
+        let mut count = 0;
+        for row in 0..self.board.height {
+            for col in 0..self.board.width {
+                let idx = self.board.index(row, col);
+                let tile = self.moves.get(&idx).copied().unwrap_or(self.board.tiles[idx]);
+                if tile != TileType::Empty {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
 }
 
 /// Inserts `new_tile` at (row, col) in `moves` and returns the (white, black)

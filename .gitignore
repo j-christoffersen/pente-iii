@@ -4,3 +4,4 @@ node_modules/
 web/.next/
 web/public/game/
 **/.DS_Store
+engine/ai_debug.log
