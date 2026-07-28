@@ -5,7 +5,7 @@ import { decodeGameParam, type EvaluateResponse } from "@/lib/game";
 
 /**
  * POST /api/evaluate  { "game": "<encoded>" }
- * Static (no-search) score_white/score_black for the given position.
+ * Static (no-search) score_white_to_play/score_black_to_play for the given position.
  */
 export async function POST(request: NextRequest) {
   let body: unknown;

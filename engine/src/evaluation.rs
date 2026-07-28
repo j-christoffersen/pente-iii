@@ -1,9 +1,11 @@
 //! Incremental and full-board pattern scoring using [`crate::aho_corasick::TileDfa`].
 
 use std::collections::HashMap;
+use std::io::Write;
 
 use crate::aho_corasick::{TileDfa, TurnTileType};
 use crate::board::{find_captures, BoardState};
+use crate::search::open_debug_log;
 use crate::tile::{PlayerType, TileType};
 
 
@@ -32,8 +34,9 @@ pub struct EvaluatedMoveSet<'a> {
     pub captures_white: u32,
     pub captures_black: u32,
 
-    pub score_white: i32,
-    pub score_black: i32,
+    // score_white_to_play means the score when it is white's turn to play - from the perspective of black
+    pub score_white_to_play: i32,
+    pub score_black_to_play: i32,
 
     pub player_to_play: PlayerType,
     pub score: i32,
@@ -89,18 +92,25 @@ impl<'a> EvaluatedMoveSet<'a> {
             player_to_play,
             captures_white: board.captures_white,
             captures_black: board.captures_black,
-            score_white: 0,
-            score_black: 0,
+            score_white_to_play: 0,
+            score_black_to_play: 0,
             score: 0,
         };
-        this.score_white = evaluate_full(&board, scorer, &this.moves, PlayerType::White)
-            + net_capture_score(this.captures_white, this.captures_black);
-        this.score_black = evaluate_full(&board, scorer, &this.moves, PlayerType::Black)
-            + net_capture_score(this.captures_black, this.captures_white);
+        let capture_score_black_to_play = net_capture_score(this.captures_white, this.captures_black);
+        let capture_score_white_to_play = net_capture_score(this.captures_black, this.captures_white);
+        let _ = writeln!(
+            open_debug_log(),
+            "net_capture_score base captures_white={} captures_black={} capture_score_white_to_play={} capture_score_black_to_play={}",
+            this.captures_white, this.captures_black, capture_score_white_to_play, capture_score_black_to_play
+        );
+        this.score_white_to_play = evaluate_full(&board, scorer, &this.moves, PlayerType::White)
+            + capture_score_white_to_play;
+        this.score_black_to_play = evaluate_full(&board, scorer, &this.moves, PlayerType::Black)
+            + capture_score_black_to_play;
         this.score = if player_to_play == PlayerType::White {
-            this.score_white
+            this.score_white_to_play
         } else {
-            this.score_black
+            this.score_black_to_play
         };
         this
     }
@@ -121,7 +131,7 @@ impl<'a> EvaluatedMoveSet<'a> {
         let next_to_play = mover.next();
         let tile = TileType::from_player_type(mover);
 
-        let (mut delta_white, mut delta_black) =
+        let (mut delta_white_to_play, mut delta_black_to_play) =
             apply_cell_change(&mut moves, board, scorer, row, col, tile);
 
         // A move can capture bracketed opponent pairs along any of the 8
@@ -132,8 +142,8 @@ impl<'a> EvaluatedMoveSet<'a> {
         });
         for &(cr, cc) in &captured {
             let (dw, db) = apply_cell_change(&mut moves, board, scorer, cr, cc, TileType::Empty);
-            delta_white += dw;
-            delta_black += db;
+            delta_white_to_play += dw;
+            delta_black_to_play += db;
         }
 
         let captured_pairs = (captured.len() / 2) as u32;
@@ -144,10 +154,21 @@ impl<'a> EvaluatedMoveSet<'a> {
             PlayerType::Black => captures_black += captured_pairs,
         }
 
-        let capture_delta_white = net_capture_score(captures_white, captures_black)
-            - net_capture_score(parent.captures_white, parent.captures_black);
-        let capture_delta_black = net_capture_score(captures_black, captures_white)
-            - net_capture_score(parent.captures_black, parent.captures_white);
+        let new_capture_score_white = net_capture_score(captures_white, captures_black);
+        let new_capture_score_black = net_capture_score(captures_black, captures_white);
+        let parent_capture_score_white = net_capture_score(parent.captures_white, parent.captures_black);
+        let parent_capture_score_black = net_capture_score(parent.captures_black, parent.captures_white);
+        let capture_delta_white = new_capture_score_white - parent_capture_score_white;
+        let capture_delta_black = new_capture_score_black - parent_capture_score_black;
+
+        let _ = writeln!(
+            open_debug_log(),
+            "net_capture_score move=({row},{col}) captures_white={} captures_black={} new_white={} new_black={} parent_white={} parent_black={} delta_white={} delta_black={}",
+            captures_white, captures_black,
+            new_capture_score_white, new_capture_score_black,
+            parent_capture_score_white, parent_capture_score_black,
+            capture_delta_white, capture_delta_black
+        );
 
         let mut this = Self {
             board,
@@ -159,16 +180,16 @@ impl<'a> EvaluatedMoveSet<'a> {
             max_col: parent.max_col.max(col),
             captures_white,
             captures_black,
-            score_white: parent.score_white + delta_white + capture_delta_white,
-            score_black: parent.score_black + delta_black + capture_delta_black,
+            score_white_to_play: parent.score_white_to_play + delta_white_to_play + capture_delta_black,
+            score_black_to_play: parent.score_black_to_play + delta_black_to_play + capture_delta_white,
             player_to_play: next_to_play,
             score: 0,
         };
 
         this.score = if next_to_play == PlayerType::White {
-            this.score_white
+            this.score_white_to_play
         } else {
-            this.score_black
+            this.score_black_to_play
         };
 
         this
@@ -463,14 +484,14 @@ mod tests {
         let parent = EvaluatedMoveSet::from_board_state(&empty_booard, &scorer, PlayerType::Black);
         let inc = EvaluatedMoveSet::from_parent(&parent, &scorer, &empty_booard, 7, 7);
 
-        // Compare score_white/score_black directly rather than `.score`: full
+        // Compare score_white_to_play/score_black_to_play directly rather than `.score`: full
         // and inc select `.score` from different player_to_play values (full
         // uses the param passed in; inc uses the mover's opponent, since a
         // move was just made), so `.score` alone isn't an apples-to-apples
         // comparison here.
-        assert!(full.score_black != 0);
-        assert_eq!(full.score_white, inc.score_white);
-        assert_eq!(full.score_black, inc.score_black);
+        assert!(full.score_black_to_play != 0);
+        assert_eq!(full.score_white_to_play, inc.score_white_to_play);
+        assert_eq!(full.score_black_to_play, inc.score_black_to_play);
     }
 
     #[test]
@@ -498,8 +519,8 @@ mod tests {
 
         assert_eq!(inc.captures_black, 1);
         assert_eq!(inc.captures_white, 0);
-        assert_eq!(full.score_white, inc.score_white);
-        assert_eq!(full.score_black, inc.score_black);
+        assert_eq!(full.score_white_to_play, inc.score_white_to_play);
+        assert_eq!(full.score_black_to_play, inc.score_black_to_play);
     }
 
     #[test]
@@ -537,8 +558,8 @@ mod tests {
 
         let evaluated = EvaluatedMoveSet::from_board_state(&board, &scorer, PlayerType::Black);
 
-        assert!(evaluated.score_black >= WIN_SCORE);
-        assert!(evaluated.score_white <= -WIN_SCORE);
+        assert!(evaluated.score_black_to_play <= -WIN_SCORE);
+        assert!(evaluated.score_white_to_play >= WIN_SCORE);
     }
 
     #[test]
@@ -553,6 +574,6 @@ mod tests {
 
         let evaluated = EvaluatedMoveSet::from_board_state(&board, &scorer, PlayerType::Black);
 
-        assert!(evaluated.score_black < WIN_SCORE);
+        assert!(evaluated.score_black_to_play < WIN_SCORE);
     }
 }
