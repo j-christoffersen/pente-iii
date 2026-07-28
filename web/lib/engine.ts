@@ -65,8 +65,8 @@ export async function findBestMove(
 
 interface EvaluateOutput {
   position: string;
-  score_white: number;
-  score_black: number;
+  score_white_to_play: number;
+  score_black_to_play: number;
   duration_ms: number;
 }
 
@@ -78,5 +78,5 @@ export interface EngineEvaluation {
 export async function evaluatePosition(game: EncodedGame): Promise<EngineEvaluation> {
   const stdout = await runEngine([game, "--evaluate"]);
   const parsed = JSON.parse(stdout) as EvaluateOutput;
-  return { scoreWhite: parsed.score_white, scoreBlack: parsed.score_black };
+  return { scoreWhite: parsed.score_white_to_play, scoreBlack: parsed.score_black_to_play };
 }

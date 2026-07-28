@@ -30,12 +30,12 @@ fn main() {
     println!("---");
     let at_11 = EvaluatedMoveSet::from_parent(&base, &scorer, &board, 9, 11);
     println!(
-        "(9,11): score_white={} score_black={} value(-score)={}",
-        at_11.score_white, at_11.score_black, -at_11.score
+        "(9,11): score_white_to_play={} score_black_to_play={} value(-score)={}",
+        at_11.score_white_to_play, at_11.score_black_to_play, -at_11.score
     );
     let at_12 = EvaluatedMoveSet::from_parent(&base, &scorer, &board, 9, 12);
     println!(
-        "(9,12): score_white={} score_black={} value(-score)={}",
-        at_12.score_white, at_12.score_black, -at_12.score
+        "(9,12): score_white_to_play={} score_black_to_play={} value(-score)={}",
+        at_12.score_white_to_play, at_12.score_black_to_play, -at_12.score
     );
 }

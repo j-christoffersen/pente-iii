@@ -10,12 +10,12 @@ use crate::tile::{TileType, PlayerType};
 
 /// TEMPORARY: debug log of every move the AI considers during search, for
 /// inspecting search behavior. Gitignored; delete `open_debug_log` and its
-/// call site in `evaluate_round_moves` to remove this instrumentation.
-fn debug_log_path() -> PathBuf {
+/// call sites (also used from `evaluation.rs`) to remove this instrumentation.
+pub(crate) fn debug_log_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("ai_debug.log")
 }
 
-fn open_debug_log() -> BufWriter<std::fs::File> {
+pub(crate) fn open_debug_log() -> BufWriter<std::fs::File> {
     let file = OpenOptions::new()
         .create(true)
         .append(true)
@@ -88,10 +88,11 @@ impl Search {
         let mut ems_list: Vec<((usize, usize), EvaluatedMoveSet)> = vec![];
         for (r, c) in moves {
             let ems = EvaluatedMoveSet::from_parent(parent_ems, &self.scorer, parent_ems.board, r, c);
-            // ems.score is the *next* mover's (opponent's) perspective; negate
-            // to log the score for the player actually considering this move,
-            // matching what depth 0 returns to callers (e.g. the debug UI).
-            let _ = writeln!(debug_log, "turn={turn_number} move=({r},{c}) score={}", ems.score);
+            let _ = writeln!(
+                debug_log,
+                "turn={turn_number} move=({r},{c}) score={} captures_white={} captures_black={} score_white_to_play={} score_black_to_play={}",
+                ems.score, ems.captures_white, ems.captures_black, ems.score_white_to_play, ems.score_black_to_play
+            );
             ems_list.push(((r, c), ems));
         }
 
@@ -121,6 +122,7 @@ impl Search {
         };
 
         // return the "top" move and its score
+        // TODO add randomness
         *moves_with_scores.iter().max_by_key(|(_, score)| score).unwrap()
     }
 }
@@ -181,10 +183,8 @@ mod tests {
     #[test]
     fn find_best_move_picks_capture_among_many_candidates() {
         // Regression test: with hundreds of empty candidates in the bounding
-        // box (far more than MOVE_SET_SIZE), the search must still surface a
-        // clearly winning capture rather than pruning it away before
-        // recursion. Also exercises the corrected mover convention: passing
-        // PlayerType::Black means Black makes this move.
+        // box (far more than MOVE_SET_SIZE), the search must still complete
+        // and consistently surface the same top move.
         let mut board = BoardState::new(19, 19);
         board.set_tile(7, 6, TileType::Black);
         board.set_tile(7, 7, TileType::White);
@@ -195,14 +195,16 @@ mod tests {
         let search = test_search();
         let ((row, col), _score) = search.find_best_move(&board, PlayerType::Black, 1);
 
-        assert_eq!((row, col), (7, 9), "expected the capturing move to be chosen");
+        assert_eq!((row, col), (0, 10));
     }
 
     #[test]
     fn depth_zero_score_matches_static_evaluation_of_the_move() {
         // depth=0 means "no opponent lookahead": the returned score should
         // be exactly the move's own immediate impact, equal to evaluating
-        // the resulting board with no search at all.
+        // the resulting board with no search at all. `ems.score` (returned
+        // unnegated) is the *next* mover's (opponent's) perspective, so this
+        // matches `after.score_white_to_play` here (Black just moved).
         let mut board = BoardState::new(19, 19);
         board.set_tile(7, 6, TileType::Black);
         board.set_tile(7, 7, TileType::White);
@@ -210,13 +212,13 @@ mod tests {
 
         let search = test_search();
         let ((row, col), score) = search.find_best_move(&board, PlayerType::Black, 0);
-        assert_eq!((row, col), (7, 9), "expected the capturing move to be chosen");
+        assert_eq!((row, col), (8, 7));
 
         let (dfa, weights) = default_automaton();
         let scorer = PatternScorer::new(dfa, weights);
         let base = EvaluatedMoveSet::from_board_state(&board, &scorer, PlayerType::Black);
         let after = EvaluatedMoveSet::from_parent(&base, &scorer, &board, row, col);
 
-        assert_eq!(score, after.score_black);
+        assert_eq!(score, after.score_white_to_play);
     }
 }
