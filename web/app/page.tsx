@@ -22,13 +22,14 @@ import {
 } from "@/lib/players";
 
 /**
- * Zero plies of opponent lookahead: the returned score is the move's own
- * immediate impact only, matching a static (no-search) evaluation of the
- * resulting board. Depth >= 1 would bake the opponent's best anticipated
- * reply into the score, which no longer matches "the score of this exact
- * move."
+ * Plies of opponent lookahead baked into the returned score. At 0 the score
+ * matches a static (no-search) evaluation of the resulting board and lines
+ * up exactly with the debug panel's position score; at 2 it additionally
+ * accounts for the opponent's best anticipated reply (and your own reply to
+ * that), so the search score no longer matches "the score of this exact
+ * move" shown in the debug panel.
  */
-const DEBUG_SEARCH_DEPTH = 0;
+const DEBUG_SEARCH_DEPTH = 2;
 
 /** Standard Pente win condition: 5 captured pairs. */
 const CAPTURE_PAIRS_TO_WIN = 5;
