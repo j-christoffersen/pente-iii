@@ -58,20 +58,20 @@ impl Search {
     }
 
     fn evaluate_round_moves(&self, parent_ems: &EvaluatedMoveSet, depth: usize) -> ((usize, usize), i32) {
-        // TEMPORARY: search the entire board instead of the padded bounding box.
-        // To revert, uncomment the block below and delete the full-board block above it.
-        let (min_row, max_row, min_col, max_col) = (
-            0,
-            parent_ems.board.height - 1,
-            0,
-            parent_ems.board.width - 1,
-        );
+        // // TEMPORARY: search the entire board instead of the padded bounding box.
+        // // To revert, uncomment the block below and delete the full-board block above it.
         // let (min_row, max_row, min_col, max_col) = (
-        //     parent_ems.min_row.saturating_sub(BOUNDING_BOX_PADDING),
-        //     (parent_ems.max_row + BOUNDING_BOX_PADDING).min(parent_ems.board.height - 1),
-        //     parent_ems.min_col.saturating_sub(BOUNDING_BOX_PADDING),
-        //     (parent_ems.max_col + BOUNDING_BOX_PADDING).min(parent_ems.board.width - 1),
+        //     0,
+        //     parent_ems.board.height - 1,
+        //     0,
+        //     parent_ems.board.width - 1,
         // );
+        let (min_row, max_row, min_col, max_col) = (
+            parent_ems.min_row.saturating_sub(BOUNDING_BOX_PADDING),
+            (parent_ems.max_row + BOUNDING_BOX_PADDING).min(parent_ems.board.height - 1),
+            parent_ems.min_col.saturating_sub(BOUNDING_BOX_PADDING),
+            (parent_ems.max_col + BOUNDING_BOX_PADDING).min(parent_ems.board.width - 1),
+        );
 
         let mut moves = Vec::new();
         for row in min_row..=max_row {
