@@ -4,3 +4,4 @@ node_modules/
 web/.next/
 web/public/game/*.wasm
 web/public/game/mq_js_bundle.js
+**/.DS_Store
