@@ -98,6 +98,22 @@ const SP_SPECIAL: (usize, usize) = (1, 2);  // user (2,1)
 const SP_GREEN: (usize, usize) = (0, 4);    // user (4,0)
 const SP_YELLOW: (usize, usize) = (1, 4);   // user (4,1)
 
+// Capture-tracker sprites: top row (row 0) is green (Black), 2nd row (row 1) is yellow (White).
+const SP_CAPTURE_ROW_GREEN: usize = 0;
+const SP_CAPTURE_ROW_YELLOW: usize = 1;
+const CAPTURE_ICON_SCALE: f32 = 2.0;
+
+// Which columns light up for a given capture count (0..=5), producing the
+// 1 / 2,3 / 2,4 / 2,5,6 / 2,5,7 layout (1-indexed) requested for the tracker.
+const CAPTURE_COLUMNS: [&[usize]; 6] = [
+    &[],
+    &[0],
+    &[1, 2],
+    &[1, 3],
+    &[1, 4, 5],
+    &[1, 4, 6],
+];
+
 const SP_OUTER_CORNER: (usize, usize) = (2, 2);                            // user (2,2)
 const SP_OUTER_EDGE_LEFT: [(usize, usize); 3] = [(3, 2), (4, 2), (5, 2)];      // user (2,3) (2,4) (2,5)
 const SP_OUTER_EDGE_RIGHT: [(usize, usize); 3] = [(0,5), (1, 5), (2, 5)];      // user (2,0) (2,1) (2,2)
@@ -352,6 +368,34 @@ fn make_ai_move_sync(board: &mut BoardState) -> Option<PlayerType> {
     check_win(board)
 }
 
+fn draw_captures(sprites: &Texture2D, board: &BoardState) {
+    const TITLE_FONT_SIZE: f32 = 20.0;
+    const PANEL_PAD: f32 = 16.0;
+    const ROW_GAP: f32 = 4.0;
+    const TITLE_GAP: f32 = 6.0;
+
+    let icon = SPRITE_PX * CAPTURE_ICON_SCALE;
+    let title = "Captures";
+    let dims = measure_text(title, None, TITLE_FONT_SIZE as u16, 1.0);
+
+    let x = PANEL_PAD;
+    let title_y = PANEL_PAD + dims.height;
+    draw_text(title, x, title_y, TITLE_FONT_SIZE, WHITE);
+
+    let green_y = title_y + TITLE_GAP;
+    let yellow_y = green_y + icon + ROW_GAP;
+
+    let black = (board.captures_black as usize).min(5);
+    let white = (board.captures_white as usize).min(5);
+
+    for &col in CAPTURE_COLUMNS[black] {
+        draw_sprite(sprites, (col, SP_CAPTURE_ROW_GREEN), x + col as f32 * icon, green_y, icon);
+    }
+    for &col in CAPTURE_COLUMNS[white] {
+        draw_sprite(sprites, (col, SP_CAPTURE_ROW_YELLOW), x + col as f32 * icon, yellow_y, icon);
+    }
+}
+
 fn draw_message(msg: &str, ox: f32, oy: f32, board_px: f32) {
     const FONT_SIZE: f32 = 24.0;
     const PAD: f32 = 12.0;
@@ -494,6 +538,7 @@ async fn main() {
         }
 
         draw_board(&sprites, &board, ox, oy, tile);
+        draw_captures(&sprites, &board);
 
         match &phase {
             Phase::AiThinking => draw_message("AI is thinking...", ox, oy, board_px),
