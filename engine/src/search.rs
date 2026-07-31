@@ -145,6 +145,8 @@ impl Search {
             moves_with_scores
         };
 
+        let _ = writeln!(debug_log, "Evaluated moves_with_scores turn {turn_number} depth {depth}: {:?}", moves_with_scores);
+
         // return the "top" move and its score
         // TODO add randomness
         let best = *moves_with_scores.iter().max_by_key(|(_, score)| score).unwrap();

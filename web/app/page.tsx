@@ -87,6 +87,12 @@ export default function Home() {
   const [debugBoardEval, setDebugBoardEval] =
     useState<EvaluateResponse | null>(null);
 
+  /** Board cell currently under the pointer, for the debug coordinate readout. */
+  const [hoverCell, setHoverCell] = useState<{ row: number; col: number } | null>(
+    null,
+  );
+  const [copied, setCopied] = useState(false);
+
   const game = useMemo(() => encodeBoard(board), [board]);
   const canPlay = turn === HUMAN_PLAYER && !loading && !winner && !debugMode;
 
@@ -145,6 +151,16 @@ export default function Home() {
       .then(setDebugBoardEval)
       .catch(() => setDebugBoardEval(null));
   }, []);
+
+  const handleCopyPosition = useCallback(() => {
+    navigator.clipboard
+      .writeText(game)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => setCopied(false));
+  }, [game]);
 
   const runOpponentTurn = useCallback(
     async (boardAfterHuman: Board) => {
@@ -260,6 +276,7 @@ export default function Home() {
           onPlay={debugMode ? handleDebugCellClick : handlePlay}
           highlight={highlight}
           debugMode={debugMode}
+          onHoverCell={setHoverCell}
         />
 
         <aside className="sidebar">
@@ -309,6 +326,11 @@ export default function Home() {
               </button>
             </div>
 
+            <p className="debug-eval__row">
+              <span>Hovering:</span>{" "}
+              {hoverCell ? `(${hoverCell.row + 1}, ${hoverCell.col + 1})` : "—"}
+            </p>
+
             {debugMode ? (
               <>
                 <div className="debug-color-picker">
@@ -350,10 +372,50 @@ export default function Home() {
             )}
           </section>
 
-          <details className="encoded">
-            <summary>Encoded position</summary>
-            <code>{game}</code>
-          </details>
+          <div className="encoded-row">
+            <details className="encoded">
+              <summary>Encoded position</summary>
+              <code>{game}</code>
+            </details>
+            <button
+              type="button"
+              className="icon-button"
+              onClick={handleCopyPosition}
+              aria-label="Copy encoded position to clipboard"
+              title="Copy encoded position to clipboard"
+            >
+              {copied ? (
+                <svg
+                  viewBox="0 0 24 24"
+                  width="16"
+                  height="16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              ) : (
+                <svg
+                  viewBox="0 0 24 24"
+                  width="16"
+                  height="16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <rect x="9" y="9" width="12" height="12" rx="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+              )}
+            </button>
+          </div>
 
           {lastOpponentMove && (
             <p className="last-move">

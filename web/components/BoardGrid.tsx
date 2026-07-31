@@ -15,6 +15,8 @@ interface BoardGridProps {
   highlight?: { row: number; col: number } | null;
   /** When true, every cell is clickable (to place or remove a stone) regardless of `canPlay`. */
   debugMode?: boolean;
+  /** Called with the cell under the pointer, or `null` when the pointer leaves the board. */
+  onHoverCell?: (cell: { row: number; col: number } | null) => void;
 }
 
 export function BoardGrid({
@@ -24,6 +26,7 @@ export function BoardGrid({
   onPlay,
   highlight,
   debugMode = false,
+  onHoverCell,
 }: BoardGridProps) {
   return (
     <div className="board-wrap">
@@ -55,6 +58,8 @@ export function BoardGrid({
                 aria-label={`Row ${rowIndex + 1}, column ${colIndex + 1}, ${cell}`}
                 disabled={!playable}
                 onClick={() => onPlay(rowIndex, colIndex)}
+                onMouseEnter={() => onHoverCell?.({ row: rowIndex, col: colIndex })}
+                onMouseLeave={() => onHoverCell?.(null)}
               >
                 {star && <span className="cell__star" aria-hidden />}
                 {cell !== "empty" && (
