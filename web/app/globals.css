@@ -206,9 +206,35 @@ button:disabled {
   color: var(--muted);
 }
 
-.encoded {
+.encoded-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.375rem;
   margin-top: 1rem;
+}
+
+.encoded {
+  flex: 1;
+  min-width: 0;
   font-size: 0.8rem;
+}
+
+.icon-button {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+}
+
+.icon-button:hover {
+  background: var(--border);
 }
 
 .encoded summary {

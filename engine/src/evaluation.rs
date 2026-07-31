@@ -415,13 +415,13 @@ pub fn default_automaton() -> (TileDfa, PatternWeights) {
         // 6+ in a row contains multiple overlapping "11111" matches, which
         // just multiplies an already-dominant score — still unmistakably a
         // win, not a problem worth guarding against.
-        ("11111", WIN_SCORE),
-        ("22222", -WIN_SCORE),
+        ("11111", WIN_SCORE), // game over, max points
+        ("22222", -WIN_SCORE), // game over, max points
         ("120", 10_i32.pow(0)),
         ("210", -(10_i32.pow(0))),
         ("010", 10_i32.pow(1)),
         ("020", -(10_i32.pow(1))),
-        ("2110", -(10_i32.pow(3)) + 5),
+        ("2110", -(10_i32.pow(3)) + 5), // capture next turn
         ("1220", (10_i32.pow(3)) - (10_i32.pow(2))),
         ("0110", 10_i32.pow(2)),
         ("0220", -(10_i32.pow(2))),
@@ -430,7 +430,7 @@ pub fn default_automaton() -> (TileDfa, PatternWeights) {
         ("21010", 10_i32.pow(0)),
         ("12020", -(10_i32.pow(0))),
         ("01110", 10_i32.pow(3)),
-        ("02220", -(10_i32.pow(5))),
+        ("02220", -(10_i32.pow(5))), // win in 3 turns
         ("01010", 10_i32.pow(1)),
         ("02020", -(10_i32.pow(1))),
         ("211110", 10_i32.pow(3)),
@@ -439,14 +439,14 @@ pub fn default_automaton() -> (TileDfa, PatternWeights) {
         ("120220", -(10_i32.pow(2))),
         ("211010", 10_i32.pow(2)),
         ("122020", -(10_i32.pow(2))),
-        ("011110", 10_i32.pow(6)),
-        ("022220", -(10_i32.pow(7))),
+        ("011110", 10_i32.pow(6)), // win in 2 turns
+        ("022220", -(10_i32.pow(7))), // win on next turn
         ("010110", 10_i32.pow(3)),
-        ("020220", -(10_i32.pow(5))),
+        ("020220", -(10_i32.pow(5))), // win in 3 turns
         ("11011", 10_i32.pow(1)),
-        ("22022", -(10_i32.pow(7))),
+        ("22022", -(10_i32.pow(7))), // win on next turn
         ("11101", 10_i32.pow(3)),
-        ("22202", -(10_i32.pow(7))),
+        ("22202", -(10_i32.pow(7))), // win on next turn
     ];
 
     let mut ac = TileDfa::new();
