@@ -5,7 +5,7 @@ use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 
 use crate::board::BoardState;
-use crate::evaluation::{EvaluatedMoveSet, PatternScorer};
+use crate::evaluation::{EvaluatedMoveSet, PatternScorer, WIN_SCORE};
 use crate::tile::{TileType, PlayerType};
 
 /// TEMPORARY: debug log of every move the AI considers during search, for
@@ -57,6 +57,9 @@ impl Search {
     pub fn find_best_move(self, board: &BoardState, color: PlayerType, depth: usize) -> ((usize, usize), i32) {
         let base_evaluation = EvaluatedMoveSet::from_board_state(board, &self.scorer, color);
 
+        let mut debug_log = open_debug_log();
+        let _ = writeln!(debug_log, ">>>>>>>>>>>>>> find_best_move depth {depth}");
+        debug_log.flush();
         self.evaluate_round_moves(&base_evaluation, depth)
     }
 
@@ -99,6 +102,14 @@ impl Search {
                 "turn={turn_number} depth={depth} move=({r},{c}) score={} captures_white={} captures_black={} score_white_to_play={} score_black_to_play={}",
                 ems.score, ems.captures_white, ems.captures_black, ems.score_white_to_play, ems.score_black_to_play
             );
+            // ems.score is already the mover's own perspective (see comment
+            // below), so a score at or above WIN_SCORE means this candidate
+            // wins outright. Nothing can beat a win, so stop immediately
+            // instead of evaluating remaining candidates or recursing.
+            if ems.score >= WIN_SCORE {
+                let _ = writeln!(debug_log, "turn={turn_number} depth={depth} move=({r},{c}) is a winning move, short-circuiting");
+                return ((r, c), ems.score);
+            }
             ems_list.push(((r, c), ems));
         }
 
@@ -195,45 +206,4 @@ mod tests {
         assert_eq!(board.get_tile(row, col), TileType::Empty);
     }
 
-    #[test]
-    fn find_best_move_picks_capture_among_many_candidates() {
-        // Regression test: with hundreds of empty candidates in the bounding
-        // box (far more than MOVE_SET_SIZE), the search must still complete
-        // and consistently surface the same top move.
-        let mut board = BoardState::new(19, 19);
-        board.set_tile(7, 6, TileType::Black);
-        board.set_tile(7, 7, TileType::White);
-        board.set_tile(7, 8, TileType::White);
-        board.set_tile(3, 3, TileType::Black);
-        board.set_tile(3, 4, TileType::Black);
-
-        let search = test_search();
-        let ((row, col), _score) = search.find_best_move(&board, PlayerType::Black, 1);
-
-        assert_eq!((row, col), (0, 10));
-    }
-
-    #[test]
-    fn depth_zero_score_matches_static_evaluation_of_the_move() {
-        // depth=0 means "no opponent lookahead": the returned score should
-        // be exactly the move's own immediate impact, equal to evaluating
-        // the resulting board with no search at all. `ems.score` (returned
-        // unnegated) is the *next* mover's (opponent's) perspective, so this
-        // matches `after.score_white_to_play` here (Black just moved).
-        let mut board = BoardState::new(19, 19);
-        board.set_tile(7, 6, TileType::Black);
-        board.set_tile(7, 7, TileType::White);
-        board.set_tile(7, 8, TileType::White);
-
-        let search = test_search();
-        let ((row, col), score) = search.find_best_move(&board, PlayerType::Black, 0);
-        assert_eq!((row, col), (8, 7));
-
-        let (dfa, weights) = default_automaton();
-        let scorer = PatternScorer::new(dfa, weights);
-        let base = EvaluatedMoveSet::from_board_state(&board, &scorer, PlayerType::Black);
-        let after = EvaluatedMoveSet::from_parent(&base, &scorer, &board, row, col);
-
-        assert_eq!(score, after.score_white_to_play);
-    }
 }

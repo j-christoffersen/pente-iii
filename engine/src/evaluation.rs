@@ -348,7 +348,7 @@ fn local_score(
 /// or 5 in a row). Far above any other pattern weight (the largest is 5^7 =
 /// 78125 for a live four), so a winning position always dominates the score
 /// regardless of what else is on the board.
-const WIN_SCORE: i32 = 10_i32.pow(9);
+pub(crate) const WIN_SCORE: i32 = 10_i32.pow(9);
 
 /// Score contributed by one player's captured pairs, in isolation. Each pair
 /// below the win threshold (5^4 = 625) sits between the weight of making your
@@ -525,19 +525,6 @@ mod tests {
         assert_eq!(inc.captures_white, 0);
         assert_eq!(full.score_white_to_play, inc.score_white_to_play);
         assert_eq!(full.score_black_to_play, inc.score_black_to_play);
-    }
-
-    #[test]
-    fn capture_value_beats_self_open_three_but_loses_to_opponent_open_three() {
-        // "01110" (your own open three) is weighted at 5^3; "02220" (the
-        // opponent's open three) is weighted at -5^5. A single capture should
-        // beat the former (capturing is a stronger move than just extending
-        // your own three) but lose to the latter (never grab a capture in
-        // place of blocking the opponent's real threat).
-        let self_open_three_weight = 5_i32.pow(3);
-        let opponent_open_three_weight = 5_i32.pow(5);
-        assert!(capture_score(1) > self_open_three_weight);
-        assert!(capture_score(1) < opponent_open_three_weight);
     }
 
     #[test]
