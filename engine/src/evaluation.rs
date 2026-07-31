@@ -161,14 +161,14 @@ impl<'a> EvaluatedMoveSet<'a> {
         let capture_delta_white = new_capture_score_white - parent_capture_score_white;
         let capture_delta_black = new_capture_score_black - parent_capture_score_black;
 
-        let _ = writeln!(
-            open_debug_log(),
-            "net_capture_score move=({row},{col}) captures_white={} captures_black={} new_white={} new_black={} parent_white={} parent_black={} delta_white={} delta_black={}",
-            captures_white, captures_black,
-            new_capture_score_white, new_capture_score_black,
-            parent_capture_score_white, parent_capture_score_black,
-            capture_delta_white, capture_delta_black
-        );
+        // let _ = writeln!(
+        //     open_debug_log(),
+        //     "net_capture_score move=({row},{col}) captures_white={} captures_black={} new_white={} new_black={} parent_white={} parent_black={} delta_white={} delta_black={}",
+        //     captures_white, captures_black,
+        //     new_capture_score_white, new_capture_score_black,
+        //     parent_capture_score_white, parent_capture_score_black,
+        //     capture_delta_white, capture_delta_black
+        // );
 
         let mut this = Self {
             board,
@@ -209,6 +209,10 @@ impl<'a> EvaluatedMoveSet<'a> {
             }
         }
         count
+    }
+
+    pub fn effective_tile_at(&self, row: usize, col: usize) -> TileType {
+        effective_tile_at(row, col, self.board, &self.moves)
     }
 }
 
@@ -344,7 +348,7 @@ fn local_score(
 /// or 5 in a row). Far above any other pattern weight (the largest is 5^7 =
 /// 78125 for a live four), so a winning position always dominates the score
 /// regardless of what else is on the board.
-const WIN_SCORE: i32 = 5_i32.pow(9);
+const WIN_SCORE: i32 = 10_i32.pow(9);
 
 /// Score contributed by one player's captured pairs, in isolation. Each pair
 /// below the win threshold (5^4 = 625) sits between the weight of making your
@@ -353,7 +357,7 @@ const WIN_SCORE: i32 = 5_i32.pow(9);
 /// than just extending your own three, but it should never be taken in place
 /// of blocking a real threat from the opponent. The 5th pair (the standard
 /// Pente win-by-capture threshold) hits `WIN_SCORE`, same as five-in-a-row.
-const CAPTURE_PAIR_VALUE: i32 = 5_i32.pow(4);
+const CAPTURE_PAIR_VALUE: i32 = 10_i32.pow(4);
 const CAPTURE_WIN_PAIRS: u32 = 5;
 
 fn capture_score(pairs: u32) -> i32 {
@@ -413,36 +417,36 @@ pub fn default_automaton() -> (TileDfa, PatternWeights) {
         // win, not a problem worth guarding against.
         ("11111", WIN_SCORE),
         ("22222", -WIN_SCORE),
-        ("120", 5_i32.pow(0)),
-        ("210", -(5_i32.pow(0))),
-        ("010", 5_i32.pow(1)),
-        ("020", -(5_i32.pow(1))),
-        ("2110", -(5_i32.pow(3)) + 5),
-        ("1220", (5_i32.pow(3)) - (5_i32.pow(2))),
-        ("0110", 5_i32.pow(2)),
-        ("0220", -(5_i32.pow(2))),
-        ("21110", 5_i32.pow(2)),
-        ("12220", -(5_i32.pow(2))),
-        ("21010", 5_i32.pow(0)),
-        ("12020", -(5_i32.pow(0))),
-        ("01110", 5_i32.pow(3)),
-        ("02220", -(5_i32.pow(5))),
-        ("01010", 5_i32.pow(1)),
-        ("02020", -(5_i32.pow(1))),
-        ("211110", 5_i32.pow(3)),
-        ("122220", -(5_i32.pow(7))),
-        ("210110", 5_i32.pow(2)),
-        ("120220", -(5_i32.pow(2))),
-        ("211010", 5_i32.pow(2)),
-        ("122020", -(5_i32.pow(2))),
-        ("011110", 5_i32.pow(6)),
-        ("022220", -(5_i32.pow(7))),
-        ("010110", 5_i32.pow(3)),
-        ("020220", -(5_i32.pow(5))),
-        ("11011", 5_i32.pow(1)),
-        ("22022", -(5_i32.pow(7))),
-        ("11101", 5_i32.pow(3)),
-        ("22202", -(5_i32.pow(7))),
+        ("120", 10_i32.pow(0)),
+        ("210", -(10_i32.pow(0))),
+        ("010", 10_i32.pow(1)),
+        ("020", -(10_i32.pow(1))),
+        ("2110", -(10_i32.pow(3)) + 5),
+        ("1220", (10_i32.pow(3)) - (10_i32.pow(2))),
+        ("0110", 10_i32.pow(2)),
+        ("0220", -(10_i32.pow(2))),
+        ("21110", 10_i32.pow(2)),
+        ("12220", -(10_i32.pow(2))),
+        ("21010", 10_i32.pow(0)),
+        ("12020", -(10_i32.pow(0))),
+        ("01110", 10_i32.pow(3)),
+        ("02220", -(10_i32.pow(5))),
+        ("01010", 10_i32.pow(1)),
+        ("02020", -(10_i32.pow(1))),
+        ("211110", 10_i32.pow(3)),
+        ("122220", -(10_i32.pow(7))),
+        ("210110", 10_i32.pow(2)),
+        ("120220", -(10_i32.pow(2))),
+        ("211010", 10_i32.pow(2)),
+        ("122020", -(10_i32.pow(2))),
+        ("011110", 10_i32.pow(6)),
+        ("022220", -(10_i32.pow(7))),
+        ("010110", 10_i32.pow(3)),
+        ("020220", -(10_i32.pow(5))),
+        ("11011", 10_i32.pow(1)),
+        ("22022", -(10_i32.pow(7))),
+        ("11101", 10_i32.pow(3)),
+        ("22202", -(10_i32.pow(7))),
     ];
 
     let mut ac = TileDfa::new();

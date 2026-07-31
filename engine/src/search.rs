@@ -25,14 +25,17 @@ pub(crate) fn open_debug_log() -> BufWriter<std::fs::File> {
 }
 
 /// After move ordering, only the top this many continuations are expanded each ply.
-pub const MOVE_SET_SIZE: usize = 16;
+// pub const MOVE_SET_SIZE: usize = 16;
+pub const MOVE_SET_SIZE: usize = 5;
 
 #[cfg(test)]
 pub const SEARCH_DEPTH: usize = 2;
 #[cfg(not(test))]
 pub const SEARCH_DEPTH: usize = 4;
 
-pub const BOUNDING_BOX_PADDING: usize = 6;
+// pub const BOUNDING_BOX_PADDING: usize = 6;
+pub const BOUNDING_BOX_PADDING: usize = 3;
+
 
 /// Engine entrypoint: holds a reusable pattern scorer for search.
 #[derive(Clone, Debug)]
@@ -76,7 +79,7 @@ impl Search {
         let mut moves = Vec::new();
         for row in min_row..=max_row {
             for col in min_col..=max_col {
-                if parent_ems.board.get_tile(row, col) == TileType::Empty {
+                if parent_ems.effective_tile_at(row, col) == TileType::Empty {
                     moves.push((row, col));
                 }
             }
@@ -84,22 +87,30 @@ impl Search {
 
         let turn_number = parent_ems.stone_count() + 1;
         let mut debug_log = open_debug_log();
+        let last_move = parent_ems.move_coords.unwrap_or((999, 999));
+        let _ = writeln!(debug_log, "evaluate_round_moves turn {turn_number} depth {depth} from last move ({}, {})", last_move.0, last_move.1);
+
 
         let mut ems_list: Vec<((usize, usize), EvaluatedMoveSet)> = vec![];
         for (r, c) in moves {
             let ems = EvaluatedMoveSet::from_parent(parent_ems, &self.scorer, parent_ems.board, r, c);
             let _ = writeln!(
                 debug_log,
-                "turn={turn_number} move=({r},{c}) score={} captures_white={} captures_black={} score_white_to_play={} score_black_to_play={}",
+                "turn={turn_number} depth={depth} move=({r},{c}) score={} captures_white={} captures_black={} score_white_to_play={} score_black_to_play={}",
                 ems.score, ems.captures_white, ems.captures_black, ems.score_white_to_play, ems.score_black_to_play
             );
             ems_list.push(((r, c), ems));
         }
 
-        // Ascending: `score` is from the *next* mover's (opponent's)
+        // Descending: `score` is from the *next* mover's (opponent's)
         // perspective, so the moves best for the current mover are the ones
         // where the opponent is left worst off — i.e. the lowest scores.
-        ems_list.sort_by(|a, b| a.1.score.cmp(&b.1.score));
+        let _ =writeln!(debug_log, "ems_list top 5 scores turn {turn_number} depth {depth}: {:?}", ems_list.iter().take(5).map(|(_, ems)| ems.score).collect::<Vec<i32>>());
+        ems_list
+        // .sort_by(|a, b| a.1.score.cmp(&b.1.score));
+        .sort_by(|a, b| b.1.score.cmp(&a.1.score));
+        let _ = writeln!(debug_log, "ems_list top 5 scores post sort turn {turn_number} depth {depth}: {:?}", ems_list.iter().take(5).map(|(_, ems)| ems.score).collect::<Vec<i32>>());
+        debug_log.flush();
 
         // if depth = 0, scores are final. Otherwise, keep iterating recursively until depth is reached.
         let moves_with_scores: Vec<((usize, usize), i32)> = if depth == 0 {
@@ -109,7 +120,9 @@ impl Search {
             ems_list.iter().map(|(_, ems)| (ems.move_coords.unwrap(), ems.score)).collect()
         } else {
             // prune to the top MOVE_SET_SIZE moves and continue recursively
-            let top_moves_from_current_round_eval: Vec<&((usize, usize), EvaluatedMoveSet)> = ems_list.iter().take(MOVE_SET_SIZE).collect();
+            let top_moves_from_current_round_eval: Vec<&((usize, usize), EvaluatedMoveSet)> = ems_list.iter()
+            .take(MOVE_SET_SIZE)
+            .collect();
             let mut moves_with_scores = Vec::new();
             for (mv, ems) in top_moves_from_current_round_eval {
                 let (r, c) = *mv;
@@ -123,7 +136,9 @@ impl Search {
 
         // return the "top" move and its score
         // TODO add randomness
-        *moves_with_scores.iter().max_by_key(|(_, score)| score).unwrap()
+        let best = *moves_with_scores.iter().max_by_key(|(_, score)| score).unwrap();
+        let _ = writeln!(debug_log, "returning best move: {:?}", best);
+        best
     }
 }
 

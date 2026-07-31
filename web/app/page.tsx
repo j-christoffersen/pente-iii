@@ -29,7 +29,7 @@ import {
  * that), so the search score no longer matches "the score of this exact
  * move" shown in the debug panel.
  */
-const DEBUG_SEARCH_DEPTH = 2;
+const DEBUG_SEARCH_DEPTH = 1;
 
 /** Standard Pente win condition: 5 captured pairs. */
 const CAPTURE_PAIRS_TO_WIN = 5;
