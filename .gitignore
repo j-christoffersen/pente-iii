@@ -2,6 +2,5 @@ cargo.lock
 target/
 node_modules/
 web/.next/
-web/public/game/*.wasm
-web/public/game/mq_js_bundle.js
+web/public/game/
 **/.DS_Store

@@ -175,14 +175,6 @@ const CAPTURE_COLUMNS: [&[usize]; 6] = [
     &[1, 4, 6],
 ];
 
-const SP_OUTER_CORNER: (usize, usize) = (2, 2);                            // user (2,2)
-const SP_OUTER_EDGE_LEFT: [(usize, usize); 3] = [(3, 2), (4, 2), (5, 2)];      // user (2,3) (2,4) (2,5)
-const SP_OUTER_EDGE_RIGHT: [(usize, usize); 3] = [(0,5), (1, 5), (2, 5)];      // user (2,0) (2,1) (2,2)
-const SP_INNER_CORNER: (usize, usize) = (3, 3);                            // user (3,0)
-const SP_INNER_EDGE_LEFT: [(usize, usize); 3] = [(4, 3), (5, 3), (6, 3)];      // user (3,4) (3,5) (3,6)
-const SP_INNER_EDGE_RIGHT: [(usize, usize); 3] = [(0, 6), (1, 6), (2, 6)];      // user (6,0) (6,1) (6,2)
-const SP_BORDER_CENTER: [(usize, usize); 4] = [(3, 4), (4,4), (5, 4), (6, 4)];    // user (3,4) (4,4) (5,4) (6,4)
-
 enum Phase {
     Human,
     AiThinking,
@@ -387,13 +379,30 @@ fn make_ai_move_sync(board: &mut BoardState) -> Option<PlayerType> {
     check_win(board)
 }
 
+// Immediate-mode draw of one 16x16 sprite cell from a texture, scaled to `size`.
+// Used for HUD elements (the capture tracker) that sit outside the baked/projected board image.
+fn draw_sprite(sprites: &Texture2D, (sc, sr): (usize, usize), x: f32, y: f32, size: f32) {
+    let px = SPRITE_PX as f32;
+    draw_texture_ex(
+        sprites,
+        x,
+        y,
+        WHITE,
+        DrawTextureParams {
+            dest_size: Some(vec2(size, size)),
+            source: Some(Rect::new(sc as f32 * px, sr as f32 * px, px, px)),
+            ..Default::default()
+        },
+    );
+}
+
 fn draw_captures(sprites: &Texture2D, board: &BoardState) {
     const TITLE_FONT_SIZE: f32 = 20.0;
     const PANEL_PAD: f32 = 16.0;
     const ROW_GAP: f32 = 4.0;
     const TITLE_GAP: f32 = 6.0;
 
-    let icon = SPRITE_PX * CAPTURE_ICON_SCALE;
+    let icon = SPRITE_PX as f32 * CAPTURE_ICON_SCALE;
     let title = "Captures";
     let dims = measure_text(title, None, TITLE_FONT_SIZE as u16, 1.0);
 
@@ -404,14 +413,19 @@ fn draw_captures(sprites: &Texture2D, board: &BoardState) {
     let green_y = title_y + TITLE_GAP;
     let yellow_y = green_y + icon + ROW_GAP;
 
-    let black = (board.captures_black as usize).min(5);
-    let white = (board.captures_white as usize).min(5);
+    // TEMP DEBUG OVERRIDE — forces icons visible regardless of real capture count.
+    let black = 3usize;
+    let white = 5usize;
+    // let black = (board.captures_black as usize).min(5);
+    // let white = (board.captures_white as usize).min(5);
 
-    for &col in CAPTURE_COLUMNS[black] {
-        draw_sprite(sprites, (col, SP_CAPTURE_ROW_GREEN), x + col as f32 * icon, green_y, icon);
+    // Position is the slot's index in the pattern (packed, adjacent), not its
+    // sprite-sheet column — the column only picks which icon variant to draw.
+    for (i, &col) in CAPTURE_COLUMNS[black].iter().enumerate() {
+        draw_sprite(sprites, (col, SP_CAPTURE_ROW_GREEN), x + i as f32 * icon, green_y, icon);
     }
-    for &col in CAPTURE_COLUMNS[white] {
-        draw_sprite(sprites, (col, SP_CAPTURE_ROW_YELLOW), x + col as f32 * icon, yellow_y, icon);
+    for (i, &col) in CAPTURE_COLUMNS[white].iter().enumerate() {
+        draw_sprite(sprites, (col, SP_CAPTURE_ROW_YELLOW), x + i as f32 * icon, yellow_y, icon);
     }
 }
 
@@ -438,6 +452,11 @@ async fn main() {
     board_tex.set_filter(FilterMode::Nearest);
 
     let white_tex = Texture2D::from_rgba8(1, 1, &[255, 255, 255, 255]);
+
+    // GPU copy of the sprite sheet for immediate-mode HUD drawing (the capture tracker),
+    // separate from `sprites_img` which is only blitted CPU-side into the baked board image.
+    let sprites_tex = Texture2D::from_image(&sprites_img);
+    sprites_tex.set_filter(FilterMode::Nearest);
 
     let bg_material = load_material(
         ShaderSource::Glsl { vertex: BG_VERT, fragment: BG_FRAG },
@@ -548,8 +567,7 @@ async fn main() {
         let bob = (get_time() as f32 * 0.6).sin() * 2.5;
         draw_board_shadow(&white_tex, ox, oy + bob, board_px, sw, sh);
         draw_board_projected(&board_tex, ox, oy + bob, board_px, sw, sh);
-        draw_board(&sprites, &board, ox, oy, tile);
-        draw_captures(&sprites, &board);
+        draw_captures(&sprites_tex, &board);
         match &phase {
             Phase::AiThinking => draw_message("AI is thinking...", ox, oy, board_px),
             Phase::AiError    => draw_message("AI unavailable  Press R to reset", ox, oy, board_px),
