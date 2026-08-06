@@ -328,7 +328,7 @@ export default function Home() {
 
             <p className="debug-eval__row">
               <span>Hovering:</span>{" "}
-              {hoverCell ? `(${hoverCell.row + 1}, ${hoverCell.col + 1})` : "—"}
+              {hoverCell ? `(${hoverCell.row}, ${hoverCell.col})` : "—"}
             </p>
 
             {debugMode ? (
