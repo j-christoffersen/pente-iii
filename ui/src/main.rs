@@ -371,12 +371,12 @@ fn encode_board(board: &BoardState) -> String {
 fn url_encode(s: &str) -> String { s.replace(':', "%3A") }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn make_ai_move_sync(board: &mut BoardState) -> Option<PlayerType> {
+fn make_ai_move_sync(board: &mut BoardState) -> ((usize, usize), Option<PlayerType>) {
     let (dfa, weights) = default_automaton();
     let search = Search::new(PatternScorer::new(dfa, weights));
     let ((row, col), _) = search.find_best_move(board, PlayerType::White, AI_DEPTH);
     board.apply_move(row, col, PlayerType::White);
-    check_win(board)
+    ((row, col), check_win(board))
 }
 
 // Immediate-mode draw of one 16x16 sprite cell from a texture, scaled to `size`.
@@ -507,6 +507,9 @@ async fn main() {
 
     let mut board = BoardState::new(BOARD_SIZE, BOARD_SIZE);
     let mut phase = Phase::Human;
+    let mut last_ai_move: Option<(usize, usize)> = None;
+    let mut last_ai_move_time: f64 = 0.0;
+    const FLASH_DURATION: f64 = 1.5;
     let mut board_dirty = true;
 
     #[cfg(target_arch = "wasm32")]
@@ -546,8 +549,10 @@ async fn main() {
                                     }
                                     #[cfg(not(target_arch = "wasm32"))]
                                     {
-                                        let winner = make_ai_move_sync(&mut board);
+                                        let ((ai_row, ai_col), winner) = make_ai_move_sync(&mut board);
                                         board_dirty = true;
+                                        last_ai_move = Some((ai_row, ai_col));
+                                        last_ai_move_time = get_time();
                                         phase = winner.map(Phase::Over).unwrap_or(Phase::Human);
                                     }
                                 }
@@ -562,6 +567,8 @@ async fn main() {
                     Some(Ok((row, col))) => {
                         board.apply_move(row, col, PlayerType::White);
                         board_dirty = true;
+                        last_ai_move = Some((row, col));
+                        last_ai_move_time = get_time();
                         phase = check_win(&board).map(Phase::Over).unwrap_or(Phase::Human);
                     }
                     Some(Err(())) => phase = Phase::AiError,
@@ -575,17 +582,71 @@ async fn main() {
             board = BoardState::new(BOARD_SIZE, BOARD_SIZE);
             phase = Phase::Human;
             board_dirty = true;
+            last_ai_move = None;
             #[cfg(target_arch = "wasm32")]
             { *ai_channel.lock().unwrap() = None; }
         }
 
-        // Rebuild the flat board image on the CPU whenever the board state changes,
-        // then upload once. The projection mesh handles all distortion.
+        let mut needs_upload = false;
         if board_dirty {
             rebuild_board_image(&mut board_img, &sprites_img, &board);
+            board_dirty = false;
+            needs_upload = true;
+        }
+
+        // Flash the last AI move tile by blending white into its pixels before upload,
+        // then restoring them so board_img stays clean for the next frame.
+        let mut flash_restore: Option<(usize, usize, [u8; SPRITE_PX * SPRITE_PX * 4])> = None;
+
+        if let Some((ar, ac)) = last_ai_move {
+            let elapsed = get_time() - last_ai_move_time;
+            if elapsed >= FLASH_DURATION {
+                last_ai_move = None;
+                needs_upload = true; // upload once more with clean pixels
+            } else {
+                let t = elapsed as f32;
+                let pulse = (t * std::f32::consts::TAU * 2.0).cos() * 0.5 + 0.5;
+                let flash_a = pulse * 0.65;
+                let dr = ar + BORDER;
+                let dc = ac + BORDER;
+                let bx = dc * SPRITE_PX;
+                let by = dr * SPRITE_PX;
+
+                let mut saved = [0u8; SPRITE_PX * SPRITE_PX * 4];
+                for py in 0..SPRITE_PX {
+                    let src = ((by + py) * BOARD_IMG + bx) * 4;
+                    saved[py * SPRITE_PX * 4..(py + 1) * SPRITE_PX * 4]
+                        .copy_from_slice(&board_img.bytes[src..src + SPRITE_PX * 4]);
+                }
+                // AI always plays White = SP_YELLOW; use sprite alpha to identify piece pixels only
+                let (sc, sr) = SP_YELLOW;
+                for py in 0..SPRITE_PX {
+                    for px in 0..SPRITE_PX {
+                        let si = ((sr * SPRITE_PX + py) * sprites_img.width as usize + sc * SPRITE_PX + px) * 4;
+                        if sprites_img.bytes[si + 3] == 0 { continue; }
+                        let i = ((by + py) * BOARD_IMG + bx + px) * 4;
+                        let sp = (py * SPRITE_PX + px) * 4;
+                        board_img.bytes[i]     = (255.0 + (saved[sp]     as f32 - 255.0) * flash_a) as u8;
+                        board_img.bytes[i + 1] = (255.0 + (saved[sp + 1] as f32 - 255.0) * flash_a) as u8;
+                        board_img.bytes[i + 2] = (255.0 + (saved[sp + 2] as f32 - 255.0) * flash_a) as u8;
+                    }
+                }
+                flash_restore = Some((bx, by, saved));
+                needs_upload = true;
+            }
+        }
+
+        if needs_upload {
             board_tex = Texture2D::from_image(&board_img);
             board_tex.set_filter(FilterMode::Nearest);
-            board_dirty = false;
+        }
+
+        if let Some((bx, by, saved)) = flash_restore {
+            for py in 0..SPRITE_PX {
+                let dst = ((by + py) * BOARD_IMG + bx) * 4;
+                board_img.bytes[dst..dst + SPRITE_PX * 4]
+                    .copy_from_slice(&saved[py * SPRITE_PX * 4..(py + 1) * SPRITE_PX * 4]);
+            }
         }
 
         // --- Render ---
