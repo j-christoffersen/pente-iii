@@ -396,9 +396,11 @@ fn draw_sprite(sprites: &Texture2D, (sc, sr): (usize, usize), x: f32, y: f32, si
     );
 }
 
-fn draw_captures(sprites: &Texture2D, board: &BoardState) {
+const CAPTURES_PANEL_PAD: f32 = 16.0;
+
+// Returns the y just below the panel, so callers can stack more debug output under it.
+fn draw_captures(sprites: &Texture2D, board: &BoardState) -> f32 {
     const TITLE_FONT_SIZE: f32 = 20.0;
-    const PANEL_PAD: f32 = 16.0;
     const ROW_GAP: f32 = 4.0;
     const TITLE_GAP: f32 = 6.0;
 
@@ -406,16 +408,16 @@ fn draw_captures(sprites: &Texture2D, board: &BoardState) {
     let title = "Captures";
     let dims = measure_text(title, None, TITLE_FONT_SIZE as u16, 1.0);
 
-    let x = PANEL_PAD;
-    let title_y = PANEL_PAD + dims.height;
+    let x = CAPTURES_PANEL_PAD;
+    let title_y = CAPTURES_PANEL_PAD + dims.height;
     draw_text(title, x, title_y, TITLE_FONT_SIZE, WHITE);
 
     let green_y = title_y + TITLE_GAP;
     let yellow_y = green_y + icon + ROW_GAP;
 
     // TEMP DEBUG OVERRIDE — forces icons visible regardless of real capture count.
-    let black = 3usize;
-    let white = 5usize;
+    let black = 5usize;
+    let white = 3usize;
     // let black = (board.captures_black as usize).min(5);
     // let white = (board.captures_white as usize).min(5);
 
@@ -426,6 +428,39 @@ fn draw_captures(sprites: &Texture2D, board: &BoardState) {
     }
     for (i, &col) in CAPTURE_COLUMNS[white].iter().enumerate() {
         draw_sprite(sprites, (col, SP_CAPTURE_ROW_YELLOW), x + i as f32 * icon, yellow_y, icon);
+    }
+
+    yellow_y + icon
+}
+
+// DEBUG: renders the whole sprite sheet with a grid + row/col indices overlaid,
+// so we can see exactly which (col, row) each icon lives at and cross-check the
+// SP_* / CAPTURE_* constants against what's actually on the sheet.
+fn draw_sprite_sheet_debug(sprites: &Texture2D, x: f32, y: f32) {
+    const SCALE: f32 = 3.0;
+    const LABEL_SIZE: f32 = 14.0;
+    let cell = SPRITE_PX as f32 * SCALE;
+    let sheet_px = 8.0 * cell; // sheet is 128x128 = 8x8 grid of 16px cells
+
+    draw_texture_ex(
+        sprites,
+        x,
+        y,
+        WHITE,
+        DrawTextureParams { dest_size: Some(vec2(sheet_px, sheet_px)), ..Default::default() },
+    );
+
+    let grid_color = Color::new(1.0, 0.0, 1.0, 0.6);
+    for i in 0..=8 {
+        let off = i as f32 * cell;
+        draw_line(x + off, y, x + off, y + sheet_px, 1.0, grid_color);
+        draw_line(x, y + off, x + sheet_px, y + off, 1.0, grid_color);
+    }
+    for col in 0..8 {
+        draw_text(&col.to_string(), x + col as f32 * cell + 2.0, y - 4.0, LABEL_SIZE, YELLOW);
+    }
+    for row in 0..8 {
+        draw_text(&row.to_string(), x - 14.0, y + row as f32 * cell + 12.0, LABEL_SIZE, YELLOW);
     }
 }
 
@@ -441,7 +476,7 @@ fn draw_message(msg: &str, ox: f32, oy: f32, board_px: f32) {
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    let sprites_img = load_image("assets/sprites-3.png").await.unwrap_or_else(|e| {
+    let sprites_img = load_image("assets/sprites.png").await.unwrap_or_else(|e| {
         eprintln!("sprites load error: {e:?}");
         Image::gen_image_color(1, 1, BLACK)
     });
@@ -567,7 +602,8 @@ async fn main() {
         let bob = (get_time() as f32 * 0.6).sin() * 2.5;
         draw_board_shadow(&white_tex, ox, oy + bob, board_px, sw, sh);
         draw_board_projected(&board_tex, ox, oy + bob, board_px, sw, sh);
-        draw_captures(&sprites_tex, &board);
+        // let captures_bottom = draw_captures(&sprites_tex, &board);
+        // draw_sprite_sheet_debug(&sprites_tex, CAPTURES_PANEL_PAD, captures_bottom + 24.0);
         match &phase {
             Phase::AiThinking => draw_message("AI is thinking...", ox, oy, board_px),
             Phase::AiError    => draw_message("AI unavailable  Press R to reset", ox, oy, board_px),
