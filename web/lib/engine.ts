@@ -13,9 +13,9 @@ import type { Player } from "@/lib/players";
 
 const execFileAsync = promisify(execFile);
 
-const ENGINE_DIR = path.resolve(process.cwd(), "..", "engine");
-const RELEASE_BINARY = path.join(ENGINE_DIR, "target", "release", "pente-engine");
-const DEBUG_BINARY = path.join(ENGINE_DIR, "target", "debug", "pente-engine");
+const WORKSPACE_ROOT = path.resolve(process.cwd(), "..");
+const RELEASE_BINARY = path.join(WORKSPACE_ROOT, "target", "release", "pente-engine");
+const DEBUG_BINARY = path.join(WORKSPACE_ROOT, "target", "debug", "pente-engine");
 
 function resolveEngineBinary(): string {
   if (existsSync(RELEASE_BINARY)) {

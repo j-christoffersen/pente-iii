@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <base href="/game/">
+    <title>Pente</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #131F15;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            image-rendering: pixelated;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="glcanvas" tabindex="0"></canvas>
+    <!-- mq_js_bundle.js ships with macroquad — copy it here via build-wasm.sh -->
+    <script src="mq_js_bundle.js"></script>
+    <script>load("pente-ui.wasm");</script>
+</body>
+</html>
