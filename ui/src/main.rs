@@ -131,6 +131,14 @@ fn draw_board_projected(board_tex: &Texture2D, ox: f32, oy: f32, board_px: f32, 
     draw_mesh(&Mesh { vertices: verts, indices: idxs, texture: Some(board_tex.clone()) });
 }
 
+// Maps a point in board_img pixel space through the same projection the board
+// mesh uses, so particles stay aligned with the barrel-distorted board.
+fn board_to_screen(bx: f32, by: f32, ox: f32, oy: f32, board_px: f32, sw: f32, sh: f32) -> (f32, f32) {
+    let u = bx / BOARD_IMG as f32;
+    let v = by / BOARD_IMG as f32;
+    barrel_point(ox + u * board_px, oy + v * board_px, sw, sh)
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 use pente_engine::evaluation::{default_automaton, PatternScorer};
 #[cfg(not(target_arch = "wasm32"))]
@@ -180,6 +188,97 @@ enum Phase {
     AiThinking,
     AiError,
     Over(PlayerType),
+}
+
+// Captured-stone break-apart effect: each captured stone's 16x16 sprite is cut
+// into a SHARD_GRID x SHARD_GRID grid, and each cell becomes its own particle
+// that keeps its slice of the original sprite (so the stone visibly shatters
+// rather than emitting generic dots).
+struct Particle {
+    board_x: f32,
+    board_y: f32,
+    vx: f32,
+    vy: f32,
+    rot: f32,
+    vrot: f32,
+    life: f32,
+    max_life: f32,
+    src: Rect,
+    size: f32,
+}
+
+const SHARD_GRID: usize = 3;
+const PARTICLE_LIFE: f32 = 0.6;
+const PARTICLE_GRAVITY: f32 = 520.0;
+const PARTICLE_SPEED_RANGE: (f32, f32) = (30.0, 90.0);
+const PARTICLE_POP_RANGE: (f32, f32) = (-70.0, -20.0);
+const PARTICLE_SPIN_RANGE: (f32, f32) = (-8.0, 8.0);
+
+fn spawn_capture_particles(particles: &mut Vec<Particle>, captured: &[(usize, usize)], mover: PlayerType) {
+    // The mover's own stone bracketed the pair, so the captured stones are the opponent's color.
+    let sprite = match mover {
+        PlayerType::Black => SP_YELLOW,
+        PlayerType::White => SP_GREEN,
+    };
+    let shard = SPRITE_PX as f32 / SHARD_GRID as f32;
+    for &(row, col) in captured {
+        let stone_x = (col + BORDER) as f32 * SPRITE_PX as f32;
+        let stone_y = (row + BORDER) as f32 * SPRITE_PX as f32;
+        for gj in 0..SHARD_GRID {
+            for gi in 0..SHARD_GRID {
+                let sx = gi as f32 * shard;
+                let sy = gj as f32 * shard;
+                let dx = (gi as f32 + 0.5) / SHARD_GRID as f32 - 0.5;
+                let dy = (gj as f32 + 0.5) / SHARD_GRID as f32 - 0.5;
+                let dist = (dx * dx + dy * dy).sqrt().max(0.001);
+                let speed = rand::gen_range(PARTICLE_SPEED_RANGE.0, PARTICLE_SPEED_RANGE.1);
+                particles.push(Particle {
+                    board_x: stone_x + sx + shard / 2.0,
+                    board_y: stone_y + sy + shard / 2.0,
+                    vx: dx / dist * speed + rand::gen_range(-15.0, 15.0),
+                    vy: dy / dist * speed + rand::gen_range(PARTICLE_POP_RANGE.0, PARTICLE_POP_RANGE.1),
+                    rot: 0.0,
+                    vrot: rand::gen_range(PARTICLE_SPIN_RANGE.0, PARTICLE_SPIN_RANGE.1),
+                    life: PARTICLE_LIFE,
+                    max_life: PARTICLE_LIFE,
+                    src: Rect::new(sprite.0 as f32 * SPRITE_PX as f32 + sx, sprite.1 as f32 * SPRITE_PX as f32 + sy, shard, shard),
+                    size: shard,
+                });
+            }
+        }
+    }
+}
+
+fn update_particles(particles: &mut Vec<Particle>, dt: f32) {
+    for p in particles.iter_mut() {
+        p.vy += PARTICLE_GRAVITY * dt;
+        p.board_x += p.vx * dt;
+        p.board_y += p.vy * dt;
+        p.rot += p.vrot * dt;
+        p.life -= dt;
+    }
+    particles.retain(|p| p.life > 0.0);
+}
+
+fn draw_particles(sprites: &Texture2D, particles: &[Particle], ox: f32, oy: f32, board_px: f32, sw: f32, sh: f32) {
+    let scale = board_px / BOARD_IMG as f32;
+    for p in particles {
+        let (sx, sy) = board_to_screen(p.board_x, p.board_y, ox, oy, board_px, sw, sh);
+        let size = p.size * scale;
+        let alpha = (p.life / p.max_life).clamp(0.0, 1.0);
+        draw_texture_ex(
+            sprites,
+            sx - size / 2.0,
+            sy - size / 2.0,
+            Color::new(1.0, 1.0, 1.0, alpha),
+            DrawTextureParams {
+                dest_size: Some(vec2(size, size)),
+                source: Some(p.src),
+                rotation: p.rot,
+                ..Default::default()
+            },
+        );
+    }
 }
 
 fn window_conf() -> Conf {
@@ -371,12 +470,13 @@ fn encode_board(board: &BoardState) -> String {
 fn url_encode(s: &str) -> String { s.replace(':', "%3A") }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn make_ai_move_sync(board: &mut BoardState) -> ((usize, usize), Option<PlayerType>) {
+fn make_ai_move_sync(board: &mut BoardState) -> ((usize, usize), Vec<(usize, usize)>, Option<PlayerType>) {
     let (dfa, weights) = default_automaton();
     let search = Search::new(PatternScorer::new(dfa, weights));
     let ((row, col), _) = search.find_best_move(board, PlayerType::White, AI_DEPTH);
     board.apply_move(row, col, PlayerType::White);
-    ((row, col), check_win(board))
+    let captured = board.apply_move(row, col, PlayerType::White);
+    ((row, col), captured, check_win(board))
 }
 
 // Immediate-mode draw of one 16x16 sprite cell from a texture, scaled to `size`.
@@ -508,6 +608,7 @@ async fn main() {
     let mut last_ai_move_time: f64 = 0.0;
     const FLASH_DURATION: f64 = 1.5;
     let mut board_dirty = true;
+    let mut particles: Vec<Particle> = Vec::new();
 
     #[cfg(target_arch = "wasm32")]
     let ai_channel: Arc<Mutex<Option<Result<(usize, usize), ()>>>> = Arc::new(Mutex::new(None));
@@ -523,7 +624,8 @@ async fn main() {
                     let (mx, my) = mouse_position();
                     if let Some((row, col)) = screen_to_board(mx, my, ox, oy, tile) {
                         if board.get_tile(row, col) == TileType::Empty {
-                            board.apply_move(row, col, PlayerType::Black);
+                            let captured = board.apply_move(row, col, PlayerType::Black);
+                            spawn_capture_particles(&mut particles, &captured, PlayerType::Black);
                             board_dirty = true;
                             match check_win(&board) {
                                 Some(w) => phase = Phase::Over(w),
@@ -546,7 +648,8 @@ async fn main() {
                                     }
                                     #[cfg(not(target_arch = "wasm32"))]
                                     {
-                                        let ((ai_row, ai_col), winner) = make_ai_move_sync(&mut board);
+                                        let ((ai_row, ai_col), captured,winner) = make_ai_move_sync(&mut board);
+                                        spawn_capture_particles(&mut particles, &captured, PlayerType::White);
                                         board_dirty = true;
                                         last_ai_move = Some((ai_row, ai_col));
                                         last_ai_move_time = get_time();
@@ -562,7 +665,8 @@ async fn main() {
                 #[cfg(target_arch = "wasm32")]
                 match ai_channel.lock().unwrap().take() {
                     Some(Ok((row, col))) => {
-                        board.apply_move(row, col, PlayerType::White);
+                        let captured = board.apply_move(row, col, PlayerType::White);
+                        spawn_capture_particles(&mut particles, &captured, PlayerType::White);
                         board_dirty = true;
                         last_ai_move = Some((row, col));
                         last_ai_move_time = get_time();
@@ -580,11 +684,16 @@ async fn main() {
             phase = Phase::Human;
             board_dirty = true;
             last_ai_move = None;
+            particles.clear();
             #[cfg(target_arch = "wasm32")]
             { *ai_channel.lock().unwrap() = None; }
         }
 
         let mut needs_upload = false;
+        update_particles(&mut particles, get_frame_time());
+
+        // Rebuild the flat board image on the CPU whenever the board state changes,
+        // then upload once. The projection mesh handles all distortion.
         if board_dirty {
             rebuild_board_image(&mut board_img, &sprites_img, &board);
             board_dirty = false;
@@ -661,6 +770,8 @@ async fn main() {
         draw_board_shadow(&white_tex, ox, oy + bob, board_px, sw, sh);
         draw_board_projected(&board_tex, ox, oy + bob, board_px, sw, sh);
         draw_captures(&sprites_tex, &board);
+        draw_particles(&sprites_tex, &particles, ox, oy + bob, board_px, sw, sh);
+        // let captures_bottom = draw_captures(&sprites_tex, &board);
         // draw_sprite_sheet_debug(&sprites_tex, CAPTURES_PANEL_PAD, captures_bottom + 24.0);
         match &phase {
             Phase::AiThinking => draw_message("AI is thinking...", ox, oy, board_px),

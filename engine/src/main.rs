@@ -27,7 +27,7 @@ struct Args {
     #[arg(long, default_value_t = 3)]
     depth: usize,
 
-    /// Statically score the position (score_white/score_black) instead of
+    /// Statically score the position (score_white_to_play/score_black_to_play) instead of
     /// searching for a move.
     #[arg(long)]
     evaluate: bool,
@@ -54,8 +54,8 @@ struct MoveOutput {
 #[derive(Serialize)]
 struct EvaluateOutput {
     position: String,
-    score_white: i32,
-    score_black: i32,
+    score_white_to_play: i32,
+    score_black_to_play: i32,
     duration_ms: u64,
 }
 
@@ -84,8 +84,8 @@ fn main() -> Result<()> {
         let duration_ms = started.elapsed().as_millis() as u64;
         let out = EvaluateOutput {
             position: args.position,
-            score_white: evaluated.score_white,
-            score_black: evaluated.score_black,
+            score_white_to_play: evaluated.score_white_to_play,
+            score_black_to_play: evaluated.score_black_to_play,
             duration_ms,
         };
         println!("{}", serde_json::to_string_pretty(&out).context("serialize output")?);
