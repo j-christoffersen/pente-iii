@@ -214,6 +214,51 @@ impl<'a> EvaluatedMoveSet<'a> {
     pub fn effective_tile_at(&self, row: usize, col: usize) -> TileType {
         effective_tile_at(row, col, self.board, &self.moves)
     }
+
+    /// Whether `mover` has just won outright by playing `move_coords` —
+    /// reaching `CAPTURE_WIN_PAIRS` captured pairs, or five in a row through
+    /// the just-placed cell. Checked directly against game rules rather than
+    /// inferred from the aggregate pattern score, which can be dragged below
+    /// `WIN_SCORE` by unrelated pre-existing threats elsewhere on the board
+    /// even when a real win just happened.
+    pub fn is_immediate_win(&self, mover: PlayerType) -> bool {
+        let captured_pairs = match mover {
+            PlayerType::White => self.captures_white,
+            PlayerType::Black => self.captures_black,
+        };
+        if captured_pairs >= CAPTURE_WIN_PAIRS {
+            return true;
+        }
+
+        let Some((row, col)) = self.move_coords else {
+            return false;
+        };
+        let mover_tile = TileType::from_player_type(mover);
+
+        const DIRECTIONS: [(isize, isize); 4] = [(0, 1), (1, 0), (1, 1), (1, -1)];
+        for (dr, dc) in DIRECTIONS {
+            let mut count = 1;
+            for step in [1isize, -1isize] {
+                let (dr, dc) = (dr * step, dc * step);
+                let mut r = row as isize + dr;
+                let mut c = col as isize + dc;
+                while r >= 0
+                    && c >= 0
+                    && (r as usize) < self.board.height
+                    && (c as usize) < self.board.width
+                    && self.effective_tile_at(r as usize, c as usize) == mover_tile
+                {
+                    count += 1;
+                    r += dr;
+                    c += dc;
+                }
+            }
+            if count >= 5 {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 /// Inserts `new_tile` at (row, col) in `moves` and returns the (white, black)

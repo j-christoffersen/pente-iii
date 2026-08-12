@@ -4,6 +4,8 @@ use std::fs::OpenOptions;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 
+use rand::Rng;
+
 use crate::board::BoardState;
 use crate::evaluation::{EvaluatedMoveSet, PatternScorer, WIN_SCORE};
 use crate::tile::{TileType, PlayerType};
@@ -27,6 +29,29 @@ pub(crate) fn open_debug_log() -> BufWriter<std::fs::File> {
 /// After move ordering, only the top this many continuations are expanded each ply.
 // pub const MOVE_SET_SIZE: usize = 16;
 pub const MOVE_SET_SIZE: usize = 5;
+
+/// Tie-break weighting: how much a cell's distance from the board center
+/// counts against it, and how much random jitter is layered on top. These
+/// only ever compare candidates that already have the *exact* same real
+/// score — see `tie_break_value` — so their absolute scale doesn't matter,
+/// only their scale relative to each other (centrality dominates jitter).
+const CENTRALITY_WEIGHT: i32 = 1000;
+const RANDOM_JITTER_RANGE: i32 = 500;
+
+/// Tie-break key for candidates that score identically (most commonly the
+/// very first move, where every empty cell scores 0): prefer cells closer
+/// to the board center, with a little randomness so play isn't perfectly
+/// deterministic among otherwise-equal options. Combined with the real
+/// score in a tuple key, so this can never override an actual scoring
+/// difference — it's only ever consulted when the real scores already tie.
+fn tie_break_value(row: usize, col: usize, board: &BoardState) -> i32 {
+    let center_row = (board.height / 2) as isize;
+    let center_col = (board.width / 2) as isize;
+    let distance = (row as isize - center_row).abs() + (col as isize - center_col).abs();
+    let centrality = -(distance as i32) * CENTRALITY_WEIGHT;
+    let jitter = rand::thread_rng().gen_range(-RANDOM_JITTER_RANGE..=RANDOM_JITTER_RANGE);
+    centrality + jitter
+}
 
 #[cfg(test)]
 pub const SEARCH_DEPTH: usize = 2;
@@ -102,13 +127,15 @@ impl Search {
                 "turn={turn_number} depth={depth} move=({r},{c}) score={} captures_white={} captures_black={} score_white_to_play={} score_black_to_play={}",
                 ems.score, ems.captures_white, ems.captures_black, ems.score_white_to_play, ems.score_black_to_play
             );
-            // ems.score is already the mover's own perspective (see comment
-            // below), so a score at or above WIN_SCORE means this candidate
-            // wins outright. Nothing can beat a win, so stop immediately
-            // instead of evaluating remaining candidates or recursing.
-            if ems.score >= WIN_SCORE {
+            // Checked directly against game rules (five in a row / 5
+            // captured pairs), not inferred from the aggregate score —
+            // unrelated pre-existing threats elsewhere on the board can drag
+            // the cumulative score below WIN_SCORE even on a real win, which
+            // would otherwise let the search recurse past a move that
+            // should have already ended the game.
+            if ems.is_immediate_win(parent_ems.player_to_play) {
                 let _ = writeln!(debug_log, "turn={turn_number} depth={depth} move=({r},{c}) is a winning move, short-circuiting");
-                return ((r, c), ems.score);
+                return ((r, c), WIN_SCORE);
             }
             ems_list.push(((r, c), ems));
         }
@@ -116,10 +143,20 @@ impl Search {
         // Descending: `score` is from the *next* mover's (opponent's)
         // perspective, so the moves best for the current mover are the ones
         // where the opponent is left worst off — i.e. the lowest scores.
+        //
+        // Ties (e.g. every candidate scores 0 on a near-empty board) are
+        // broken by centrality + jitter via `tie_break_value`, same as the
+        // final selection below — otherwise this plain `sort_by` is stable
+        // and just keeps candidates in row-major generation order, which
+        // silently biases every pruned (depth > 0) search toward whatever
+        // corner of the padded box was generated first. `sort_by_cached_key`
+        // evaluates the key exactly once per element (unlike inlining this
+        // in a `sort_by` comparator, which could call it — and redraw the
+        // random jitter — multiple times per element and break the sort).
         let _ =writeln!(debug_log, "ems_list top 5 scores turn {turn_number} depth {depth}: {:?}", ems_list.iter().take(5).map(|(_, ems)| ems.score).collect::<Vec<i32>>());
-        ems_list
-        // .sort_by(|a, b| a.1.score.cmp(&b.1.score));
-        .sort_by(|a, b| b.1.score.cmp(&a.1.score));
+        ems_list.sort_by_cached_key(|((r, c), ems)| {
+            std::cmp::Reverse((ems.score, tie_break_value(*r, *c, parent_ems.board)))
+        });
         let _ = writeln!(debug_log, "ems_list top 5 scores post sort turn {turn_number} depth {depth}: {:?}", ems_list.iter().take(5).map(|(_, ems)| ems.score).collect::<Vec<i32>>());
         debug_log.flush();
 
@@ -147,9 +184,13 @@ impl Search {
 
         let _ = writeln!(debug_log, "Evaluated moves_with_scores turn {turn_number} depth {depth}: {:?}", moves_with_scores);
 
-        // return the "top" move and its score
-        // TODO add randomness
-        let best = *moves_with_scores.iter().max_by_key(|(_, score)| score).unwrap();
+        // return the "top" move and its score. Ties (most commonly every
+        // candidate on an empty board) are broken by centrality + a little
+        // randomness — see `tie_break_value`.
+        let best = *moves_with_scores
+            .iter()
+            .max_by_key(|((r, c), score)| (*score, tie_break_value(*r, *c, parent_ems.board)))
+            .unwrap();
         let _ = writeln!(debug_log, "returning best move: {:?}", best);
         best
     }
