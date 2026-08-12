@@ -415,19 +415,16 @@ fn draw_captures(sprites: &Texture2D, board: &BoardState) -> f32 {
     let green_y = title_y + TITLE_GAP;
     let yellow_y = green_y + icon + ROW_GAP;
 
-    // TEMP DEBUG OVERRIDE — forces icons visible regardless of real capture count.
-    let black = 5usize;
-    let white = 3usize;
-    // let black = (board.captures_black as usize).min(5);
-    // let white = (board.captures_white as usize).min(5);
+    let black = (board.captures_black as usize).min(5);
+    let white = (board.captures_white as usize).min(5);
 
     // Position is the slot's index in the pattern (packed, adjacent), not its
     // sprite-sheet column — the column only picks which icon variant to draw.
     for (i, &col) in CAPTURE_COLUMNS[black].iter().enumerate() {
-        draw_sprite(sprites, (col, SP_CAPTURE_ROW_GREEN), x + i as f32 * icon, green_y, icon);
+        draw_sprite(sprites, (col, SP_CAPTURE_ROW_YELLOW), x + i as f32 * icon, green_y, icon);
     }
     for (i, &col) in CAPTURE_COLUMNS[white].iter().enumerate() {
-        draw_sprite(sprites, (col, SP_CAPTURE_ROW_YELLOW), x + i as f32 * icon, yellow_y, icon);
+        draw_sprite(sprites, (col, SP_CAPTURE_ROW_GREEN), x + i as f32 * icon, yellow_y, icon);
     }
 
     yellow_y + icon
@@ -663,7 +660,7 @@ async fn main() {
         let bob = (get_time() as f32 * 0.6).sin() * 2.5;
         draw_board_shadow(&white_tex, ox, oy + bob, board_px, sw, sh);
         draw_board_projected(&board_tex, ox, oy + bob, board_px, sw, sh);
-        // let captures_bottom = draw_captures(&sprites_tex, &board);
+        draw_captures(&sprites_tex, &board);
         // draw_sprite_sheet_debug(&sprites_tex, CAPTURES_PANEL_PAD, captures_bottom + 24.0);
         match &phase {
             Phase::AiThinking => draw_message("AI is thinking...", ox, oy, board_px),
