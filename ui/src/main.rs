@@ -156,6 +156,11 @@ const BOARD_IMG: usize = DISPLAY_TILES * SPRITE_PX;   // 368
 #[cfg(not(target_arch = "wasm32"))]
 const AI_DEPTH: usize = 2;
 
+/// The AI always appears to think for at least this long, even when the
+/// search itself finishes faster — the move is computed eagerly but its
+/// reveal is held back until this much time has passed.
+const AI_MIN_THINK_SECONDS: f64 = 1.0;
+
 const SP_NORMAL: (usize, usize) = (0, 2);
 const SP_SPECIAL: (usize, usize) = (1, 2);
 const SP_GREEN: (usize, usize) = (0, 4);
@@ -505,15 +510,29 @@ fn encode_board(board: &BoardState) -> String {
 
 fn url_encode(s: &str) -> String { s.replace(':', "%3A") }
 
+/// Computes the AI's move without applying it to the board — the caller
+/// decides when to reveal it (see `AI_MIN_THINK_SECONDS`).
 #[cfg(not(target_arch = "wasm32"))]
-fn make_ai_move_sync(board: &mut BoardState, sounds: &Sounds) -> ((usize, usize), Vec<(usize, usize)>, Option<PlayerType>) {
+fn compute_ai_move(board: &BoardState) -> (usize, usize) {
     let (dfa, weights) = default_automaton();
     let search = Search::new(PatternScorer::new(dfa, weights));
-    let ((row, col), _) = search.find_best_move(board, PlayerType::White, AI_DEPTH);
-    board.apply_move(row, col, PlayerType::White);
+    search.find_best_move(board, PlayerType::White, AI_DEPTH).0
+}
+
+/// Applies an already-decided AI move to the board: places the stone, plays
+/// the appropriate sound, spawns capture particles, and reports the winner
+/// (if any). Shared by both the native and wasm AI-move paths.
+fn apply_ai_move(
+    board: &mut BoardState,
+    sounds: &Sounds,
+    particles: &mut Vec<Particle>,
+    row: usize,
+    col: usize,
+) -> Option<PlayerType> {
     let captured = board.apply_move(row, col, PlayerType::White);
     play_move_sound(sounds, &captured);
-    ((row, col), captured, check_win(board))
+    spawn_capture_particles(particles, &captured, PlayerType::White);
+    check_win(board)
 }
 
 // Immediate-mode draw of one 16x16 sprite cell from a texture, scaled to `size`.
@@ -649,6 +668,12 @@ async fn main() {
     let mut board_dirty = true;
     let mut particles: Vec<Particle> = Vec::new();
 
+    // When the AI started "thinking" for the current move — its result is
+    // held back until at least AI_MIN_THINK_SECONDS after this.
+    let mut ai_thinking_start: f64 = 0.0;
+    #[cfg(not(target_arch = "wasm32"))]
+    let mut pending_ai_move: Option<(usize, usize)> = None;
+
     #[cfg(target_arch = "wasm32")]
     let ai_channel: Arc<Mutex<Option<Result<(usize, usize), ()>>>> = Arc::new(Mutex::new(None));
 
@@ -670,6 +695,7 @@ async fn main() {
                             match check_win(&board) {
                                 Some(w) => phase = Phase::Over(w),
                                 None => {
+                                    ai_thinking_start = get_time();
                                     #[cfg(target_arch = "wasm32")]
                                     {
                                         let channel = ai_channel.clone();
@@ -684,17 +710,12 @@ async fn main() {
                                             };
                                             *channel.lock().unwrap() = Some(result);
                                         });
-                                        phase = Phase::AiThinking;
                                     }
                                     #[cfg(not(target_arch = "wasm32"))]
                                     {
-                                        let ((ai_row, ai_col), captured, winner) = make_ai_move_sync(&mut board, &sounds);
-                                        spawn_capture_particles(&mut particles, &captured, PlayerType::White);
-                                        board_dirty = true;
-                                        last_ai_move = Some((ai_row, ai_col));
-                                        last_ai_move_time = get_time();
-                                        phase = winner.map(Phase::Over).unwrap_or(Phase::Human);
+                                        pending_ai_move = Some(compute_ai_move(&board));
                                     }
+                                    phase = Phase::AiThinking;
                                 }
                             }
                         }
@@ -702,19 +723,39 @@ async fn main() {
                 }
             }
             Phase::AiThinking => {
+                let elapsed = get_time() - ai_thinking_start;
+                // Errors surface immediately; a ready move is only revealed
+                // once at least AI_MIN_THINK_SECONDS has passed, so the AI
+                // never looks like it moved instantly even when the search
+                // itself finishes fast.
                 #[cfg(target_arch = "wasm32")]
-                match ai_channel.lock().unwrap().take() {
-                    Some(Ok((row, col))) => {
-                        let captured = board.apply_move(row, col, PlayerType::White);
-                        play_move_sound(&sounds, &captured);
-                        spawn_capture_particles(&mut particles, &captured, PlayerType::White);
+                {
+                    let snapshot: Option<Result<(usize, usize), ()>> = *ai_channel.lock().unwrap();
+                    match snapshot {
+                        Some(Err(())) => {
+                            *ai_channel.lock().unwrap() = None;
+                            phase = Phase::AiError;
+                        }
+                        Some(Ok((row, col))) if elapsed >= AI_MIN_THINK_SECONDS => {
+                            *ai_channel.lock().unwrap() = None;
+                            let winner = apply_ai_move(&mut board, &sounds, &mut particles, row, col);
+                            board_dirty = true;
+                            last_ai_move = Some((row, col));
+                            last_ai_move_time = get_time();
+                            phase = winner.map(Phase::Over).unwrap_or(Phase::Human);
+                        }
+                        _ => {}
+                    }
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                if elapsed >= AI_MIN_THINK_SECONDS {
+                    if let Some((row, col)) = pending_ai_move.take() {
+                        let winner = apply_ai_move(&mut board, &sounds, &mut particles, row, col);
                         board_dirty = true;
                         last_ai_move = Some((row, col));
                         last_ai_move_time = get_time();
-                        phase = check_win(&board).map(Phase::Over).unwrap_or(Phase::Human);
+                        phase = winner.map(Phase::Over).unwrap_or(Phase::Human);
                     }
-                    Some(Err(())) => phase = Phase::AiError,
-                    None => {}
                 }
             }
             Phase::Over(_) | Phase::AiError => {}
@@ -728,6 +769,8 @@ async fn main() {
             particles.clear();
             #[cfg(target_arch = "wasm32")]
             { *ai_channel.lock().unwrap() = None; }
+            #[cfg(not(target_arch = "wasm32"))]
+            { pending_ai_move = None; }
         }
 
         let mut needs_upload = false;

@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   async rewrites() {
-    return [{ source: "/game", destination: "/game/index.html" }];
+    return [{ source: "/", destination: "/game/index.html" }];
   },
 };
 
