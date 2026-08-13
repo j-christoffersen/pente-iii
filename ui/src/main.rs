@@ -1,3 +1,4 @@
+use macroquad::audio::{load_sound, play_sound_once, Sound};
 use macroquad::prelude::*;
 use pente_engine::board::BoardState;
 use pente_engine::tile::{PlayerType, TileType};
@@ -213,6 +214,41 @@ const PARTICLE_GRAVITY: f32 = 520.0;
 const PARTICLE_SPEED_RANGE: (f32, f32) = (30.0, 90.0);
 const PARTICLE_POP_RANGE: (f32, f32) = (-70.0, -20.0);
 const PARTICLE_SPIN_RANGE: (f32, f32) = (-8.0, 8.0);
+
+struct Sounds {
+    piece_place: Sound,
+    glass_break: [Sound; 3],
+}
+
+async fn load_sounds() -> Sounds {
+    Sounds {
+        piece_place: load_sound("assets/piece_place.mp3")
+            .await
+            .expect("assets/piece_place.mp3"),
+        glass_break: [
+            load_sound("assets/glass_break_1.mp3")
+                .await
+                .expect("assets/glass_break_1.mp3"),
+            load_sound("assets/glass_break_2.mp3")
+                .await
+                .expect("assets/glass_break_2.mp3"),
+            load_sound("assets/glass_break_3.mp3")
+                .await
+                .expect("assets/glass_break_3.mp3"),
+        ],
+    }
+}
+
+/// Plays a random glass-break for a capturing move, or the plain placement
+/// sound otherwise. One sound per move, never both.
+fn play_move_sound(sounds: &Sounds, captured: &[(usize, usize)]) {
+    if captured.is_empty() {
+        play_sound_once(&sounds.piece_place);
+    } else {
+        let idx = rand::gen_range(0, sounds.glass_break.len());
+        play_sound_once(&sounds.glass_break[idx]);
+    }
+}
 
 fn spawn_capture_particles(particles: &mut Vec<Particle>, captured: &[(usize, usize)], mover: PlayerType) {
     // The mover's own stone bracketed the pair, so the captured stones are the opponent's color.
@@ -470,12 +506,13 @@ fn encode_board(board: &BoardState) -> String {
 fn url_encode(s: &str) -> String { s.replace(':', "%3A") }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn make_ai_move_sync(board: &mut BoardState) -> ((usize, usize), Vec<(usize, usize)>, Option<PlayerType>) {
+fn make_ai_move_sync(board: &mut BoardState, sounds: &Sounds) -> ((usize, usize), Vec<(usize, usize)>, Option<PlayerType>) {
     let (dfa, weights) = default_automaton();
     let search = Search::new(PatternScorer::new(dfa, weights));
     let ((row, col), _) = search.find_best_move(board, PlayerType::White, AI_DEPTH);
     board.apply_move(row, col, PlayerType::White);
     let captured = board.apply_move(row, col, PlayerType::White);
+    play_move_sound(sounds, &captured);
     ((row, col), captured, check_win(board))
 }
 
@@ -578,6 +615,8 @@ async fn main() {
         Image::gen_image_color(1, 1, BLACK)
     });
 
+    let sounds = load_sounds().await;
+
     let board_bg = Color::from_rgba(19, 31, 21, 255); // matches clear_background #131F15
     let mut board_img = Image::gen_image_color(BOARD_IMG as u16, BOARD_IMG as u16, board_bg);
     let mut board_tex = Texture2D::from_image(&board_img);
@@ -625,6 +664,7 @@ async fn main() {
                     if let Some((row, col)) = screen_to_board(mx, my, ox, oy, tile) {
                         if board.get_tile(row, col) == TileType::Empty {
                             let captured = board.apply_move(row, col, PlayerType::Black);
+                            play_move_sound(&sounds, &captured);
                             spawn_capture_particles(&mut particles, &captured, PlayerType::Black);
                             board_dirty = true;
                             match check_win(&board) {
@@ -648,7 +688,7 @@ async fn main() {
                                     }
                                     #[cfg(not(target_arch = "wasm32"))]
                                     {
-                                        let ((ai_row, ai_col), captured,winner) = make_ai_move_sync(&mut board);
+                                        let ((ai_row, ai_col), captured, winner) = make_ai_move_sync(&mut board, &sounds);
                                         spawn_capture_particles(&mut particles, &captured, PlayerType::White);
                                         board_dirty = true;
                                         last_ai_move = Some((ai_row, ai_col));
@@ -666,6 +706,7 @@ async fn main() {
                 match ai_channel.lock().unwrap().take() {
                     Some(Ok((row, col))) => {
                         let captured = board.apply_move(row, col, PlayerType::White);
+                        play_move_sound(&sounds, &captured);
                         spawn_capture_particles(&mut particles, &captured, PlayerType::White);
                         board_dirty = true;
                         last_ai_move = Some((row, col));

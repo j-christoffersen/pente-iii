@@ -3,8 +3,7 @@
 use std::fs::OpenOptions;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
-
-use rand::Rng;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::board::BoardState;
 use crate::evaluation::{EvaluatedMoveSet, PatternScorer, WIN_SCORE};
@@ -38,6 +37,30 @@ pub const MOVE_SET_SIZE: usize = 5;
 const CENTRALITY_WEIGHT: i32 = 1000;
 const RANDOM_JITTER_RANGE: i32 = 500;
 
+/// Monotonically-advancing seed for `jitter`. A plain counter (mixed with
+/// the cell coordinates below) is all this needs — it's tie-break noise,
+/// not anything security-sensitive — and avoiding a real RNG crate sidesteps
+/// `getrandom`'s lack of an entropy source on bare wasm32-unknown-unknown
+/// (this engine also gets compiled into the macroquad WASM game in `ui/`,
+/// which has no OS and isn't wasm-bindgen-based, so a JS-backed RNG can't
+/// be linked in there either).
+static JITTER_SEED: AtomicU64 = AtomicU64::new(0x9E3779B97F4A7C15);
+
+/// Small pseudo-random value in `-RANDOM_JITTER_RANGE..=RANDOM_JITTER_RANGE`,
+/// mixed from an advancing counter and the given cell so repeated calls
+/// (even for the same cell) vary. Quality only needs to be "looks random
+/// enough to break ties," not cryptographic.
+fn jitter(row: usize, col: usize) -> i32 {
+    let mut x = JITTER_SEED.fetch_add(0x9E3779B97F4A7C15, Ordering::Relaxed)
+        ^ (row as u64).wrapping_mul(0xBF58476D1CE4E5B9)
+        ^ (col as u64).wrapping_mul(0x94D049BB133111EB);
+    x ^= x << 13;
+    x ^= x >> 7;
+    x ^= x << 17;
+    let range = (2 * RANDOM_JITTER_RANGE + 1) as u64;
+    (x % range) as i32 - RANDOM_JITTER_RANGE
+}
+
 /// Tie-break key for candidates that score identically (most commonly the
 /// very first move, where every empty cell scores 0): prefer cells closer
 /// to the board center, with a little randomness so play isn't perfectly
@@ -49,8 +72,7 @@ fn tie_break_value(row: usize, col: usize, board: &BoardState) -> i32 {
     let center_col = (board.width / 2) as isize;
     let distance = (row as isize - center_row).abs() + (col as isize - center_col).abs();
     let centrality = -(distance as i32) * CENTRALITY_WEIGHT;
-    let jitter = rand::thread_rng().gen_range(-RANDOM_JITTER_RANGE..=RANDOM_JITTER_RANGE);
-    centrality + jitter
+    centrality + jitter(row, col)
 }
 
 #[cfg(test)]
